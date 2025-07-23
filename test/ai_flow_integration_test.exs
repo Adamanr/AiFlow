@@ -12,7 +12,7 @@ defmodule AiFlowIntegrationTest do
 
     {:ok, _pid} = AiFlow.Ollama.start_link(
       hostname: "localhost",
-      port: 11434,
+      port: 11_434,
       timeout: 5000,
       chat_file: temp_chat_file
     )
@@ -46,7 +46,7 @@ defmodule AiFlowIntegrationTest do
     test "get_port returns configured value" do
       port = AiFlow.Ollama.get_port()
       assert is_integer(port)
-      assert port == 11434
+      assert port == 11_434
     end
 
     test "get_timeout returns configured value" do
@@ -67,7 +67,7 @@ defmodule AiFlowIntegrationTest do
     test "show_chat_history returns empty list for new chat" do
       messages = AiFlow.Ollama.show_chat_history("new_chat", "new_user")
       assert is_list(messages)
-      assert length(messages) == 0
+      assert Enum.empty?(messages)
     end
 
     test "show_all_chats returns empty structure" do
@@ -100,7 +100,7 @@ defmodule AiFlowIntegrationTest do
     test "debug_show_chat_history works" do
       messages = AiFlow.Ollama.debug_show_chat_history("test_chat", "test_user")
       assert is_list(messages)
-      assert length(messages) == 0
+      assert Enum.empty?(messages)
     end
   end
 

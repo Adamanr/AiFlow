@@ -14,7 +14,7 @@ defmodule AiFlowPerformanceTest do
 
     {:ok, _pid} = AiFlow.Ollama.start_link(
       hostname: "localhost",
-      port: 11434,
+      port: 11_434,
       timeout: 5000,
       chat_file: temp_chat_file
     )
@@ -74,7 +74,7 @@ defmodule AiFlowPerformanceTest do
       avg_time = duration / iterations
       IO.puts("Average time per show_chat_history: #{avg_time} microseconds")
 
-      assert avg_time < 10000
+      assert avg_time < 10_000
     end
 
     test "debug functions performance" do
@@ -92,7 +92,7 @@ defmodule AiFlowPerformanceTest do
       avg_time = duration / iterations
       IO.puts("Average time per debug_load_chat_data: #{avg_time} microseconds")
 
-      assert avg_time < 50000
+      assert avg_time < 50_000
     end
 
     test "file operations performance" do
@@ -128,7 +128,7 @@ defmodule AiFlowPerformanceTest do
       avg_time = duration / iterations
       IO.puts("Average time per clear_chat_history: #{avg_time} microseconds")
 
-      assert avg_time < 100000
+      assert avg_time < 100_000
     end
 
     test "show_all_chats performance" do
@@ -146,7 +146,7 @@ defmodule AiFlowPerformanceTest do
       avg_time = duration / iterations
       IO.puts("Average time per show_all_chats: #{avg_time} microseconds")
 
-      assert avg_time < 10000
+      assert avg_time < 10_000
     end
 
     test "check_chat_file performance" do
@@ -164,7 +164,7 @@ defmodule AiFlowPerformanceTest do
       avg_time = duration / iterations
       IO.puts("Average time per check_chat_file: #{avg_time} microseconds")
 
-      assert avg_time < 10000
+      assert avg_time < 10_000
     end
 
     test "show_chat_file_content performance" do
@@ -182,7 +182,7 @@ defmodule AiFlowPerformanceTest do
       avg_time = duration / iterations
       IO.puts("Average time per show_chat_file_content: #{avg_time} microseconds")
 
-      assert avg_time < 20000
+      assert avg_time < 20_000
     end
 
     test "debug_show_chat_history performance" do
@@ -200,7 +200,7 @@ defmodule AiFlowPerformanceTest do
       avg_time = duration / iterations
       IO.puts("Average time per debug_show_chat_history: #{avg_time} microseconds")
 
-      assert avg_time < 15000
+      assert avg_time < 15_000
     end
   end
 

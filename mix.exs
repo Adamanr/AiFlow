@@ -10,10 +10,10 @@ defmodule AiFlow.MixProject do
       description: "A simple Elixir library for interacting with the Ollama API",
       package: package(),
       deps: deps(),
-      docs: [
-        main: "AiFlow",
-        extras: ["README.md"]
-      ]
+
+      name: "AiFlow",
+      source_url: "https://github.com/Adamanr/AiFlow",
+      docs: &docs/0
     ]
   end
 
@@ -31,6 +31,14 @@ defmodule AiFlow.MixProject do
     ]
   end
 
+  defp docs do
+  [
+    main: "AiFlow",
+    logo: "assets/aiflow.png",
+    extras: ["README.md"]
+  ]
+end
+
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
@@ -38,10 +46,12 @@ defmodule AiFlow.MixProject do
       {:mox, "~> 1.2"},
       {:jason, "~> 1.4.4"},
       {:ex_doc, "~> 0.34", only: :dev, runtime: false, warn_if_outdated: true},
+      {:makeup_html, ">= 0.0.0", only: :dev, runtime: false},
       {:bumblebee, "~> 0.5.0"},
       {:nx, "~> 0.7.0"},
       {:axon, "~> 0.6.0"},
-      {:exla, "~> 0.7.0", optional: true}
+      {:exla, "~> 0.7.0", optional: true},
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false}
     ]
   end
 end

@@ -14,7 +14,7 @@ defmodule AiFlowTest do
 
     {:ok, _pid} = AiFlow.Ollama.start_link(
       hostname: "localhost",
-      port: 11434,
+      port: 11_434,
       timeout: 5000,
       chat_file: temp_chat_file
     )
@@ -48,7 +48,7 @@ defmodule AiFlowTest do
 
       assert is_pid(pid)
       assert AiFlow.Ollama.get_hostname() == "127.0.0.1"
-      assert AiFlow.Ollama.get_port() == 11434
+      assert AiFlow.Ollama.get_port() == 11_434
       assert AiFlow.Ollama.get_timeout() == 60_000
     end
 
@@ -59,14 +59,14 @@ defmodule AiFlowTest do
 
       {:ok, pid} = AiFlow.Ollama.start_link(
         hostname: "test-host",
-        port: 12345,
-        timeout: 30000
+        port: 12_345,
+        timeout: 30_000
       )
 
       assert is_pid(pid)
       assert AiFlow.Ollama.get_hostname() == "test-host"
-      assert AiFlow.Ollama.get_port() == 12345
-      assert AiFlow.Ollama.get_timeout() == 30000
+      assert AiFlow.Ollama.get_port() == 12_345
+      assert AiFlow.Ollama.get_timeout() == 30_000
     end
   end
 
@@ -74,20 +74,20 @@ defmodule AiFlowTest do
     test "initializes with default configuration" do
       state = AiFlow.Ollama.init()
       assert state.hostname == "127.0.0.1"
-      assert state.port == 11434
+      assert state.port == 11_434
       assert state.timeout == 60_000
     end
 
     test "initializes with custom configuration" do
       state = AiFlow.Ollama.init(
         hostname: "custom-host",
-        port: 54321,
-        timeout: 15000
+        port: 54_321,
+        timeout: 15_000
       )
 
       assert state.hostname == "custom-host"
-      assert state.port == 54321
-      assert state.timeout == 15000
+      assert state.port == 54_321
+      assert state.timeout == 15_000
     end
   end
 
@@ -97,7 +97,7 @@ defmodule AiFlowTest do
 
       messages = AiFlow.Ollama.show_chat_history("test_chat", "test_user")
 
-      assert length(messages) == 0
+      assert Enum.empty?(messages)
     end
 
     test "shows all chats" do
