@@ -62,7 +62,7 @@ defmodule AiFlow.Ollama.Embeddings do
   """
 
   require Logger
-  alias AiFlow.Ollama.{Config, Error, HTTPClient, Model}
+  alias AiFlow.Ollama.{Config, Error, HTTPClient}
 
   @doc """
   Generates embeddings for input text(s).
@@ -117,20 +117,19 @@ defmodule AiFlow.Ollama.Embeddings do
       # View field from response
       {:ok, response} = AiFlow.Ollama.Embeddings.generate_embeddings(
         "Hello world",
-        field: "total_duration"
+        field: {:body, "total_duration"}
       )
   """
   @spec generate_embeddings(String.t() | [String.t()], keyword()) :: {:ok, list()} | {:error, Error.t()}
   def generate_embeddings(input, opts \\ []) do
     config = AiFlow.Ollama.get_config()
     debug = Keyword.get(opts, :debug, false)
-    short = Keyword.get(opts, :short, true)
     model = Keyword.get(opts, :model, "llama3.1")
-    field = Keyword.get(opts, :field, "embeddings")
+    field = Keyword.get(opts, :field, {:body, "embeddings"})
     url = Config.build_url(config, "/api/embed")
-    body = Map.merge(%{model: model, input: input}, Enum.into(Keyword.delete(opts, :debug), %{}))
+    body = %{model: model, input: input}
 
-    HTTPClient.request(:post, url, body, config.timeout, false, 0, :generate_embeddings)
+    HTTPClient.request(:post, url, body, config.timeout, debug, 0, :generate_embeddings)
     |> HTTPClient.handle_response(field, :generate_embeddings, opts)
   end
 
@@ -185,7 +184,13 @@ defmodule AiFlow.Ollama.Embeddings do
       )
   """
   @spec generate_embeddings!(String.t() | [String.t()], keyword()) :: list()
-  def generate_embeddings!(input, opts \\ []), do: HTTPClient.handle_result(generate_embeddings(input, opts), :generate_embeddings)
+  def generate_embeddings!(input, opts \\ []) do
+    case generate_embeddings(input, opts) do
+      {:ok, result} -> result
+      {:error, error} -> error
+      other -> other
+    end
+  end
 
   @doc """
   Generates embeddings using the legacy endpoint.
@@ -237,11 +242,10 @@ defmodule AiFlow.Ollama.Embeddings do
   def generate_embeddings_legacy(prompt, opts \\ []) do
     config = AiFlow.Ollama.get_config()
     debug = Keyword.get(opts, :debug, false)
-    short = Keyword.get(opts, :short, true)
     model = Keyword.get(opts, :model, "llama3.1")
     field = Keyword.get(opts, :field, "embedding")
     url = Config.build_url(config, "/api/embeddings")
-    body = Map.merge(%{model: model, prompt: prompt}, Enum.into(Keyword.delete(opts, :debug), %{}))
+    body = %{model: model, prompt: prompt}
 
     HTTPClient.request(:post, url, body, config.timeout, debug, 0, :generate_embeddings_legacy)
     |> HTTPClient.handle_response(field, :generate_embeddings_legacy, opts)
@@ -298,5 +302,11 @@ defmodule AiFlow.Ollama.Embeddings do
       )
   """
   @spec generate_embeddings_legacy!(String.t(), keyword()) :: list()
-  def generate_embeddings_legacy!(prompt, opts \\ []), do: HTTPClient.handle_result(generate_embeddings_legacy(prompt, opts), :generate_embeddings_legacy)
+  def generate_embeddings_legacy!(prompt, opts \\ []) do
+    case generate_embeddings_legacy(prompt, opts) do
+      {:ok, result} -> result
+      {:error, error} -> error
+      other -> other
+    end
+  end
 end

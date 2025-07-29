@@ -7,3 +7,12 @@ end
 
 Mox.defmock(AiFlow.Ollama.MockReq, for: AiFlow.Ollama.HttpClient)
 ExUnit.start()
+
+Logger.configure(level: :warning)
+
+{:ok, _pid} = AiFlow.Ollama.start_link(
+  hostname: "localhost",
+  port: 11434,
+  timeout: 1000,
+  chat_file: "test_global_chat.json"
+)

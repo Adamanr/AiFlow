@@ -9,7 +9,7 @@ defmodule AiFlow.Ollama.Error do
 
   ## Error Structure
   The `%Error{}` struct contains:
-    - `type`: An atom indicating the error category (`:http`, `:network`, `:file`, `:invalid`, `:pull`, `:server`, `:unknown`).
+    - `type`: An atom indicating the error category (`:http`, `:network`, `:file`, `:invalid`, `:pull`, `:server`, `:client`, `:unknown`).
     - `reason`: The underlying cause of the error (e.g., HTTP status, file error code, or custom term).
     - `message`: A human-readable description of the error.
     - `status`: An optional HTTP status code (for `:http` errors).
@@ -41,10 +41,15 @@ defmodule AiFlow.Ollama.Error do
   defexception [:message, :type, :reason, :status]
 
   @type error_type ::
-          :http | :network | :file | :invalid | :pull | :server | :unknown
+          :http | :network | :file | :invalid | :pull | :server | :client | :unknown
   @type error_reason ::
-          {:http_error, integer(), term()} | :timeout | :conn_refused
-          | :enoent | :eacces | :invalid_input | term()
+          {:http_error, integer(), term()}
+          | :timeout
+          | :conn_refused
+          | :enoent
+          | :eacces
+          | :invalid_input
+          | term()
 
   @type t :: %__MODULE__{
           type: error_type(),
@@ -80,6 +85,7 @@ defmodule AiFlow.Ollama.Error do
       status: nil
     }
   end
+
   def invalid(_), do: raise(ArgumentError, "message must be a string")
 
   @doc """
@@ -104,6 +110,7 @@ defmodule AiFlow.Ollama.Error do
   @spec http(integer(), term()) :: t()
   def http(status, reason) when is_integer(status) do
     message = "HTTP request failed with status #{status}: #{format_reason(reason)}"
+
     %__MODULE__{
       type: :http,
       reason: normalize_http_reason(reason),
@@ -111,6 +118,7 @@ defmodule AiFlow.Ollama.Error do
       status: status
     }
   end
+
   def http(_, _), do: raise(ArgumentError, "status must be an integer")
 
   @doc """
@@ -240,6 +248,34 @@ defmodule AiFlow.Ollama.Error do
   end
 
   @doc """
+  Creates an error for client-related issues.
+
+  ## Parameters
+    - `reason`: A term describing the client error.
+
+  ## Returns
+    - `%Error{}` with `type: :client` and a formatted `message`.
+
+  ## Examples
+      iex> AiFlow.Ollama.Error.client("Internal client error")
+      %AiFlow.Ollama.Error{
+        type: :client,
+        reason: "Internal client error",
+        message: "Client error: Internal client error",
+        status: nil
+      }
+  """
+  @spec client(term()) :: t()
+  def client(reason) do
+    %__MODULE__{
+      type: :client,
+      reason: reason,
+      message: "Client error: #{format_reason(reason)}",
+      status: nil
+    }
+  end
+
+  @doc """
   Creates an error for unknown or uncategorized issues.
 
   ## Parameters
@@ -290,7 +326,13 @@ defmodule AiFlow.Ollama.Error do
   def raise_error(operation, %__MODULE__{message: message}) when is_atom(operation) do
     raise(__MODULE__, "#{operation} failed: #{message}")
   end
-  def raise_error(_, _), do: raise(ArgumentError, "operation must be an atom and error must be an %AiFlow.Ollama.Error{}")
+
+  def raise_error(_, _),
+    do:
+      raise(
+        ArgumentError,
+        "operation must be an atom and error must be an %AiFlow.Ollama.Error{}"
+      )
 
   @doc """
   Converts an error struct to a string for logging or display.
@@ -310,6 +352,7 @@ defmodule AiFlow.Ollama.Error do
   def to_string(%__MODULE__{message: message}) do
     message
   end
+
   def to_string(_), do: raise(ArgumentError, "argument must be an %AiFlow.Ollama.Error{}")
 
   # Private helper to format reason for readable messages

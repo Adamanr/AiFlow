@@ -43,7 +43,8 @@ defmodule AiFlow.Ollama.Chat do
   """
 
   require Logger
-  alias AiFlow.Ollama.{Config, Error, HTTPClient, Model}
+
+  alias AiFlow.Ollama.{Config, Error, HTTPClient}
 
   # Use configurable file module for easier testing/mocking
   @file_module Application.compile_env(:ai_flow, :file_module, File)
@@ -95,7 +96,11 @@ defmodule AiFlow.Ollama.Chat do
       {:ok, "llama3.1"}
 
       # Extract a specific field from the message object (default short: true)
-      iex> AiFlow.Ollama.Chat.chat("Hello!", "chat123", "usr1", field: "role")
+      iex> AiFlow.Ollama.Chat.chat("Hello!", "chat123", "usr1", field: {:body, "model"})
+      {:ok, "llama3.1"}
+
+      # Extract a specific field from the message object (default short: true)
+      iex> AiFlow.Ollama.Chat.chat("Hello!", "chat123", "usr1", field: {:body, ["message", "role"]})
       {:ok, "assistant"}
 
       # Handle an API error
@@ -105,24 +110,31 @@ defmodule AiFlow.Ollama.Chat do
   @spec chat(String.t(), String.t(), String.t(), keyword()) :: {:ok, term()} | {:error, Error.t()}
   def chat(prompt, chat_id, user_id \\ "default_user", opts \\ []) do
     config = AiFlow.Ollama.get_config()
+    url = Config.build_url(config, "/api/chat")
+    model = Keyword.get(opts, :retries, config.model)
     debug = Keyword.get(opts, :debug, false)
-    model = Keyword.get(opts, :model, config.model)
+    short = Keyword.get(opts, :short, true)
+    field = Keyword.get(opts, :field, {:body, "message", "response"})
+    retries = Keyword.get(opts, :retries, 0)
 
-    case load_chat_data(config) do
-      {:ok, chat_data} ->
-        chat_context = %{
-          config: config,
-          debug: debug,
-          model: model,
-          url: Config.build_url(config, "/api/chat"),
-          chat_data: chat_data,
-          prompt: prompt,
-          chat_id: chat_id,
-          user_id: user_id,
-          opts: opts
-        }
-        handle_chat_logic(chat_context)
+    with {:ok, chat_data} <- load_chat_data(config) do
+      chat_context = %{
+        config: config,
+        url: url,
+        chat_data: chat_data,
+        model: model,
+        debug: debug,
+        short: short,
+        retries: retries,
+        field: field,
+        prompt: prompt,
+        chat_id: chat_id,
+        user_id: user_id,
+        opts: opts
+      }
 
+      handle_chat_logic(chat_context)
+    else
       {:error, reason} ->
         Logger.error("Failed to load chat data: #{inspect(reason)}")
         {:error, %Error{type: :unknown, reason: reason}}
@@ -133,12 +145,15 @@ defmodule AiFlow.Ollama.Chat do
   Same as `chat/4`, but raises a `RuntimeError` if the request fails instead of returning an error tuple.
 
   ## Parameters
+
   - Same as `chat/4`.
 
   ## Returns
+
   - The formatted response based on `:short` and `:field` options.
 
   ## Raises
+
   - `RuntimeError` if the chat request fails or the chat data cannot be loaded/saved.
 
   ## Examples
@@ -155,216 +170,26 @@ defmodule AiFlow.Ollama.Chat do
   def chat!(prompt, chat_id, user_id \\ "default_user", opts \\ []) do
     case chat(prompt, chat_id, user_id, opts) do
       {:ok, result} -> result
-      {:error, error} -> raise RuntimeError, message: "Chat request failed: #{inspect(error)}"
+      {:error, error} -> error
+      other -> other
     end
   end
 
-  # --- Private Helper Functions ---
-
-  # Centralized logic for the chat interaction
   defp handle_chat_logic(chat_context) do
-    {user_chats, chat_history, user_message, messages} =
-      prepare_chat_data(
-        chat_context.prompt,
-        chat_context.chat_id,
-        chat_context.user_id,
-        chat_context.model,
-        chat_context.chat_data
-      )
+    chat_data = chat_context.chat_data
+    user_id = chat_context.user_id
+    chat_id = chat_context.chat_id
+    model = chat_context.model
+    prompt = chat_context.prompt
 
-    formatted_messages = Enum.map(messages, &Map.take(&1, ["role", "content"]))
-
-    body = prepare_request_body(chat_context, formatted_messages)
-
-    log_request(chat_context, body)
-
-    http_response =
-      HTTPClient.request(
-        :post,
-        chat_context.url,
-        body,
-        chat_context.config.timeout,
-        chat_context.debug,
-        0,
-        :chat
-      )
-
-    case handle_chat_response(http_response, chat_context) do
-      {:ok, %Req.Response{status: 200, body: api_response_body}} ->
-        process_successful_response(chat_context, api_response_body, user_chats, chat_history, messages)
-
-      error_tuple ->
-        error_tuple
-    end
-  end
-
-  # Prepares the HTTP request body by merging model, messages, and user-provided options
-  defp prepare_request_body(chat_context, formatted_messages) do
-    request_opts =
-      chat_context.opts
-      |> Keyword.delete(:debug)
-      |> Keyword.delete(:short)
-      |> Keyword.delete(:field)
-      |> Enum.into(%{})
-
-    Map.merge(
-      %{
-        "model" => chat_context.model,
-        "messages" => formatted_messages,
-        "stream" => false
-      },
-      request_opts
-    )
-  end
-
-  # Logs the outgoing request details if debug mode is enabled
-  defp log_request(chat_context, body) do
-    if chat_context.debug do
-      Logger.debug("Sending request to #{chat_context.url}")
-      Logger.debug("Request body: #{inspect(body)}")
-    end
-  end
-
-  # Processes a successful API response, updates chat history, and formats the user response
-  defp process_successful_response(chat_context, api_response_body, user_chats, chat_history, messages) do
-    short = Keyword.get(chat_context.opts, :short, true)
-    field_opt = Keyword.get(chat_context.opts, :field)
-
-    content_for_history = get_in(api_response_body, ["message", "content"]) || ""
-
-    user_response = determine_user_response(api_response_body, short, field_opt)
-
-    assistant_message = %{
-      "role" => "assistant",
-      "content" => content_for_history,
-      "timestamp" => DateTime.utc_now() |> DateTime.to_iso8601()
-    }
-
-    updated_messages = messages ++ [assistant_message]
-
-    updated_chat =
-      Map.merge(chat_history, %{
-        "messages" => updated_messages,
-        "updated_at" => DateTime.utc_now() |> DateTime.to_iso8601()
-      })
-
-    updated_user_chats = Map.put(user_chats, chat_context.chat_id, updated_chat)
-
-    updated_chat_data =
-      Map.put(
-        chat_context.chat_data,
-        "chats",
-        Map.put(
-          Map.get(chat_context.chat_data, "chats", %{}),
-          chat_context.user_id,
-          updated_user_chats
-        )
-      )
-
-    case save_chat_data(chat_context.config, updated_chat_data) do
-      :ok -> {:ok, user_response}
-      {:error, reason} ->
-        Logger.error("Failed to save chat  #{inspect(reason)}")
-        {:ok, user_response}
-    end
-  end
-
-  # Determines the final response returned to the user based on :short and :field options
-  defp determine_user_response(api_response_body, short, field_opt) do
-    case {short, field_opt} do
-      {true, nil} ->
-        get_in(api_response_body, ["message", "content"])
-
-      {true, field_name} ->
-        case Map.get(api_response_body, field_name) do
-          nil -> get_in(api_response_body, ["message", field_name])
-          value -> value
-        end
-
-      {false, nil} ->
-        api_response_body
-
-      {false, field_name} ->
-        Map.get(api_response_body, field_name)
-    end
-  end
-
-  # Handles 404 "model not found" errors by attempting to pull the model
-  defp handle_chat_response(
-         {:ok, %Req.Response{status: 404, body: %{"error" => error_message}}},
-         chat_context
-       )
-       when is_binary(error_message) do
-    if error_message =~ "not found" and error_message =~ "try pulling it first" do
-      model = chat_context.model
-      debug = chat_context.debug
-
-      Logger.info("Model '#{model}' not found, attempting to pull...")
-
-      case Model.pull_model(model, debug: debug) do
-        {:ok, _} ->
-          Logger.info("Model '#{model}' pulled successfully, retrying chat request")
-          retry_chat_request(chat_context)
-
-        {:error, pull_error} ->
-          Logger.error("Failed to pull model '#{model}': #{inspect(pull_error)}")
-          {:error, pull_error}
-      end
-    else
-      {:ok, %Req.Response{status: 404, body: %{"error" => error_message}}}
-    end
-  end
-
-  defp handle_chat_response(response, _chat_context) do
-    response
-  end
-
-  # Retries the original chat request after a successful model pull
-  defp retry_chat_request(chat_context) do
-    request_opts =
-      chat_context.opts
-      |> Keyword.delete(:debug)
-      |> Keyword.delete(:short)
-      |> Keyword.delete(:field)
-      |> Enum.into(%{})
-
-    formatted_messages =
-      ((Map.get(chat_context.chat_data, "chats", %{}) |> Map.get(chat_context.user_id, %{}) |> Map.get(chat_context.chat_id, %{"messages" => []}))["messages"] || []) ++
-        [%{"role" => "user", "content" => chat_context.prompt}]
-
-    body =
-      Map.merge(
-        %{
-          "model" => chat_context.model,
-          "messages" => Enum.map(formatted_messages, &Map.take(&1, ["role", "content"])),
-          "stream" => false
-        },
-        request_opts
-      )
-
-    HTTPClient.request(
-      :post,
-      chat_context.url,
-      body,
-      chat_context.config.timeout,
-      chat_context.debug,
-      0,
-      :chat
-    )
-  end
-
-  # Prepares chat data structures (user chats, chat history, current message) for the interaction
-  defp prepare_chat_data(prompt, chat_id, user_id, model, chat_data) do
-    user_chats = Map.get(chat_data, "chats", %{}) |> Map.get(user_id, %{})
-
-    chat_history =
-      Map.get(user_chats, chat_id, %{
-        "name" => chat_id,
-        "model" => model,
-        "messages" => [],
-        "created_at" => DateTime.utc_now() |> DateTime.to_iso8601(),
-        "updated_at" => DateTime.utc_now() |> DateTime.to_iso8601()
-      })
+    user_chats = get_in(chat_data, ["chats", user_id]) || %{}
+    chat_history = Map.get(user_chats, chat_id, %{
+      "name" => chat_id,
+      "model" => model,
+      "messages" => [],
+      "created_at" => DateTime.utc_now() |> DateTime.to_iso8601(),
+      "updated_at" => DateTime.utc_now() |> DateTime.to_iso8601()
+    })
 
     user_message = %{
       "role" => "user",
@@ -373,56 +198,225 @@ defmodule AiFlow.Ollama.Chat do
     }
 
     messages = (chat_history["messages"] || []) ++ [user_message]
+    formatted_messages = Enum.map(messages, &Map.take(&1, ["role", "content"]))
 
-    {user_chats, chat_history, user_message, messages}
+    request_body = %{
+      "model" => model,
+      "messages" => formatted_messages,
+      "stream" => false
+    }
+
+    http_resp = HTTPClient.request(:post, chat_context.url, request_body, chat_context.config.timeout, chat_context.debug, 0, :chat)
+
+    case http_resp do
+      {:ok, %Req.Response{status: 200, body: api_response_body}} ->
+        process_successful_response(chat_context, api_response_body, user_chats, chat_history, messages)
+        HTTPClient.handle_response(http_resp, chat_context.field, :chat, chat_context.opts)
+
+      {:error, error} ->
+        {:error, error}
+
+      {:ok, %Req.Response{status: status}} ->
+        Logger.error("Unexpected status #{status} in chat response")
+        {:error, %Error{type: :http, reason: "Unexpected status #{status}", status: status}}
+    end
+  end
+
+  defp process_successful_response(chat_context, api_response_body, user_chats, chat_history, messages) do
+    assistant_content = get_in(api_response_body, ["message", "content"]) || ""
+
+    user_response = determine_user_response(api_response_body, chat_context.short, chat_context.field)
+
+    assistant_message = %{
+      "role" => "assistant",
+      "content" => assistant_content,
+      "timestamp" => DateTime.utc_now() |> DateTime.to_iso8601()
+    }
+
+    updated_messages = messages ++ [assistant_message]
+    updated_chat = Map.merge(chat_history, %{
+      "messages" => updated_messages,
+      "updated_at" => DateTime.utc_now() |> DateTime.to_iso8601()
+    })
+
+    updated_user_chats = Map.put(user_chats, chat_context.chat_id, updated_chat)
+
+    updated_chat_data =
+      chat_context.chat_data
+      |> Map.put("chats", Map.put(Map.get(chat_context.chat_data, "chats", %{}), chat_context.user_id, updated_user_chats))
+
+    case save_chat_data(chat_context.config, updated_chat_data) do
+      :ok ->
+        {:ok, user_response}
+      {:error, reason} ->
+        Logger.error("Failed to save chat data: #{inspect(reason)}")
+        {:ok, user_response}
+    end
+  end
+
+  defp determine_user_response(api_response_body, short, field_opt) when is_map(api_response_body) do
+    case {short, field_opt} do
+      {true, {:body, path}} when is_binary(path) ->
+        Map.get(api_response_body, path)
+      {true, {:body, path}} when is_list(path) ->
+        get_in(api_response_body, path)
+      {true, nil} ->
+        get_in(api_response_body, ["message", "content"])
+      {true, field_name} ->
+        case Map.get(api_response_body, field_name) do
+          nil -> get_in(api_response_body, ["message", field_name])
+          value -> value
+        end
+      {false, nil} ->
+        api_response_body
+      {false, field_name} when is_binary(field_name) ->
+        Map.get(api_response_body, field_name)
+      {false, {:body, path}} when is_binary(path) ->
+        Map.get(api_response_body, path)
+      {false, {:body, path}} when is_list(path) ->
+        get_in(api_response_body, path)
+      {_, _} ->
+        api_response_body
+    end
+  end
+
+  defp determine_user_response(_api_response_body, _short, _field_opt) do
+    nil
   end
 
   # --- Chat History Management Functions ---
 
   @doc """
-  Retrieves the chat history for a specific chat and user.
+  Retrieves the chat history or list of chats for a specific user.
 
   ## Parameters
-  - `chat_id`: The ID of the chat.
-  - `user_id`: The ID of the user (defaults to `"default_user"`).
+
+  - `opts`: Keyword list of options:
+    - `user_id`: The ID of the user (string).
+    - `chat_id`: The ID of a specific chat to retrieve (string, optional).
+    - `:short` (boolean): Controls the response format.
+      - `true` (default): Returns a list of chat names/IDs for the user (if `chat_id` is nil),
+        or the content (list of messages) of the specific chat (if `chat_id` is provided).
+      - `false`: Returns the full map(s) of chat data.
+        If `chat_id` is nil, returns a map of all user's chats.
+        If `chat_id` is provided, returns the full map of that specific chat.
 
   ## Returns
-  - `{:ok, list()}`: A list of message maps in the chat history.
-  - `{:error, term()}`: An error if the chat data could not be loaded.
+
+  - `{:ok, term()}`: The requested data based on `user_id`, `chat_id`, and `:short` option.
+  - `{:error, term()}`: An error if the chat data could not be loaded or chat is not found.
+
+  ## Examples
+
+      # Get all users in short: true version
+      iex> AiFlow.Ollama.show_chat_history()
+      {:ok, %{users: ["default_user"]}}
+
+
+      # Get all users in short: false version
+      iex> AiFlow.Ollama.show_chat_history()
+      {:ok, %{users: ["default_user"]}}
+      iex(41)> AiFlow.Ollama.show_chat_history(short: false)
+      {:ok, %{"chats" => %{"default_user" => %{...}}2
+
+      # Get list of chat names for a user (short: true by default)
+      iex> AiFlow.Ollama.Chat.show_chat_history(user_id: "user1")
+      {:ok, ["chat1", "chat2"]}
+
+      # Get full map of all chats for a user
+      iex> AiFlow.Ollama.Chat.show_chat_history(user_id: "user1", short: false)
+      {:ok, %{"chat1" => %{"name" => "chat1", "messages" => [...], ...}, "chat2" => %{...}}}
+
+      # Get messages list for a specific chat (short: true by default)
+      iex> AiFlow.Ollama.Chat.show_chat_history(user_id: "user1", chat_id: "chat1")
+      {:ok, [%{"role" => "user", "content" => "..."}, %{"role" => "assistant", "content" => "..."}]}
+
+      # Get full map for a specific chat
+      iex> AiFlow.Ollama.Chat.show_chat_history(user_id: "user1", chat_id: "chat1", short: false)
+      {:ok, %{"name" => "chat1", "messages" => [...], "created_at" => "...", ...}}
+
+      # Handle user not found or no chats
+      iex> AiFlow.Ollama.Chat.show_chat_history(user_id: "unknown_user")
+      {:ok, []}
+
+      # Handle specific chat not found
+      iex> AiFlow.Ollama.Chat.show_chat_history(user_id: "user1", chat_id: "unknown_chat")
+      {:error, :chat_not_found}
   """
-  @spec show_chat_history(String.t(), String.t()) :: {:ok, list()} | {:error, term()}
-  def show_chat_history(chat_id, user_id \\ "default_user") do
+  @spec show_chat_history(keyword()) :: {:ok, term()} | {:error, term()}
+  def show_chat_history(opts \\ []) do
     config = AiFlow.Ollama.get_config()
-    case load_chat_data(config) do
-      {:ok, chat_data} ->
-        chats = Map.get(chat_data, "chats", %{})
-        user_chats = Map.get(chats, user_id, %{})
-        chat = Map.get(user_chats, chat_id, %{"messages" => []})
-        messages = Map.get(chat, "messages", [])
-        {:ok, messages}
-      {:error, reason} ->
-        {:error, reason}
+    user_id = Keyword.get(opts, :user_id, nil)
+    chat_id = Keyword.get(opts, :chat_id, nil)
+    short = Keyword.get(opts, :short, true)
+
+    with {:ok, chat_data} <- load_chat_data(config) do
+      case {user_id, chat_id} do
+        {nil, nil} ->
+          {:ok, (if short, do: %{users: Map.keys(chat_data["chats"])}, else: chat_data)}
+
+        {user_id, nil} ->
+          user_chats_map = get_in(chat_data, ["chats"]) || %{}
+          user_chats = Map.get(user_chats_map, user_id, %{})
+          {:ok, (if short, do: Map.keys(user_chats), else: user_chats)}
+
+        {user_id, chat_id} ->
+          user_chats_map = get_in(chat_data, ["chats"]) || %{}
+          user_chats = Map.get(user_chats_map, user_id, %{})
+          chat_data = Map.get(user_chats, chat_id)
+
+          if not is_nil(chat_data) do
+            {:ok, (if short, do: Map.get(chat_data, "messages", []), else: chat_data)}
+          else
+            {:error, :chat_not_found}
+          end
+      end
     end
   end
 
   @doc """
-  Retrieves the chat history for a specific chat and user, raising on error.
+  Retrieves the chat history or list of chats for a specific user, raising on error.
 
   ## Parameters
-  - `chat_id`: The ID of the chat.
-  - `user_id`: The ID of the user (defaults to `"default_user"`).
+
+  - `opts`: Keyword list of options:
+    - `user_id`: The ID of the user (string).
+    - `chat_id`: The ID of a specific chat to retrieve (string, optional).
+    - `:short` (boolean): Controls the response format.
+      - `true` (default): Returns a list of chat names/IDs for the user (if `chat_id` is nil),
+        or the content (list of messages) of the specific chat (if `chat_id` is provided).
+      - `false`: Returns the full map(s) of chat data.
+        If `chat_id` is nil, returns a map of all user's chats.
+        If `chat_id` is provided, returns the full map of that specific chat.
 
   ## Returns
-  - `list()`: A list of message maps in the chat history.
+
+  - `term()`: The requested data based on `user_id`, `chat_id`, and `:short` option.
 
   ## Raises
-  - `RuntimeError` if the chat data could not be loaded.
+
+  - `RuntimeError` if the chat data could not be loaded or chat is not found.
+
+  ## Examples
+
+      # Get list of chat names for a user
+      iex> AiFlow.Ollama.Chat.show_chat_history!(user_id: "user1")
+      ["chat1", "chat2"]
+
+      # Get messages list for a specific chat
+      iex> AiFlow.Ollama.Chat.show_chat_history!(user_id: "user1", chat_id: "chat1")
+      [%{"role" => "user", "content" => "..."}, ...]
+
+      # Raises on error
+      iex> AiFlow.Ollama.Chat.show_chat_history!(user_id: "unknown_user", chat_id: "unknown_chat")
+      ** (RuntimeError) Failed to show chat history: :chat_not_found
   """
-  @spec show_chat_history!(String.t(), String.t()) :: list()
-  def show_chat_history!(chat_id, user_id \\ "default_user") do
-    case show_chat_history(chat_id, user_id) do
-      {:ok, messages} -> messages
-      {:error, reason} -> raise RuntimeError, message: "Failed to show chat history: #{inspect(reason)}"
+  @spec show_chat_history!(keyword()) :: term()
+  def show_chat_history!(opts \\ []) do
+    case show_chat_history(opts) do
+      {:ok, result} -> result
+      {:error, error} -> error
+      other -> other
     end
   end
 
@@ -430,15 +424,16 @@ defmodule AiFlow.Ollama.Chat do
   Retrieves all stored chat data.
 
   ## Returns
+
   - `{:ok, map()}`: The entire chat data map with atom keys.
   - `{:error, term()}`: An error if the chat data could not be loaded.
   """
   @spec show_all_chats() :: {:ok, map()} | {:error, term()}
   def show_all_chats do
     config = AiFlow.Ollama.get_config()
-    case load_chat_data(config) do
-      {:ok, chat_data} -> {:ok, atomize_keys(chat_data)}
-      {:error, reason} -> {:error, reason}
+
+    with {:ok, chat_data} <- load_chat_data(config) do
+      {:ok, atomize_keys(chat_data)}
     end
   end
 
@@ -446,46 +441,19 @@ defmodule AiFlow.Ollama.Chat do
   Retrieves all stored chat data, raising on error.
 
   ## Returns
+
   - `map()`: The entire chat data map with atom keys.
 
   ## Raises
+
   - `RuntimeError` if the chat data could not be loaded.
   """
   @spec show_all_chats!() :: map()
   def show_all_chats! do
     case show_all_chats() do
-      {:ok, data} -> data
-      {:error, reason} -> raise RuntimeError, message: "Failed to show all chats: #{inspect(reason)}"
-    end
-  end
-
-  @doc """
-  Retrieves the raw content of the chat data file.
-
-  ## Returns
-  - `{:ok, map()}`: The raw chat data map.
-  - `{:error, term()}`: An error if the chat data could not be loaded.
-  """
-  @spec show_chat_file_content() :: {:ok, map()} | {:error, term()}
-  def show_chat_file_content do
-    config = AiFlow.Ollama.get_config()
-    load_chat_data(config)
-  end
-
-  @doc """
-  Retrieves the raw content of the chat data file, raising on error.
-
-  ## Returns
-  - `map()`: The raw chat data map.
-
-  ## Raises
-  - `RuntimeError` if the chat data could not be loaded.
-  """
-  @spec show_chat_file_content!() :: map()
-  def show_chat_file_content! do
-    case show_chat_file_content() do
-      {:ok, data} -> data
-      {:error, reason} -> raise RuntimeError, message: "Failed to show chat file content: #{inspect(reason)}"
+      {:ok, result} -> result
+      {:error, error} -> error
+      other -> other
     end
   end
 
@@ -493,34 +461,75 @@ defmodule AiFlow.Ollama.Chat do
   Clears chat history based on provided options.
 
   ## Options
+
   - `:confirm` (boolean): Must be `true` to proceed with deletion (defaults to `false`).
-  - `:user` (string): The user ID whose chats to delete (optional).
-  - `:chat` (string): The specific chat ID to delete (requires `:user`, optional).
+  - `:user_id` (string): The user ID whose chats to delete (optional).
+  - `:chat_id` (string): The specific chat ID to delete (requires `:user`, optional).
 
   ## Returns
-  - `{:ok, :deleted}`: Confirmation of deletion.
+
+  - `{:ok, :success}`: Confirmation of deletion.
+  - `{:ok, :deleted}`: If selected chat has already been deleted
   - `{:error, term()}`: An error if deletion failed or confirmation was not given.
 
   ## Examples
 
       # Delete user chat
-      AiFlow.Ollama.Chat.chat(chat: "my_chat", user: "user1")
-      :ok
+      AiFlow.Ollama.Chat.chat(chat_id: "my_chat", user_id: "user1")
+      {:ok, :success}
+
+      # If the selected chat has already been deleted
+      AiFlow.Ollama.Chat.chat(chat_id: "my_chat", user_id: "user1")
+      {:ok, :deleted}
   """
   @spec clear_chat_history(keyword()) :: {:ok, :deleted} | {:error, term()}
   def clear_chat_history(opts \\ []) do
     config = AiFlow.Ollama.get_config()
     confirm = Keyword.get(opts, :confirm, false)
-    user_id = Keyword.get(opts, :user, nil)
-    chat_id = Keyword.get(opts, :chat, nil)
+    user_id = Keyword.get(opts, :user_id, nil)
+    chat_id = Keyword.get(opts, :chat_id, nil)
 
-    cond do
-      chat_id == nil and user_id == nil ->
+    case {user_id, chat_id} do
+      {nil, nil} ->
         delete_all_chats(config, confirm)
-      chat_id == nil and user_id != nil ->
+      {user_id, nil} ->
         delete_user_chats(config, user_id, confirm)
-      true ->
+      {user_id, chat_id} ->
         delete_specific_chat(config, user_id, chat_id)
+      end
+  end
+
+  @doc """
+  Clears chat history based on provided options.
+
+  ## Options
+
+  - `:confirm` (boolean): Must be `true` to proceed with deletion (defaults to `false`).
+  - `:user_id` (string): The user ID whose chats to delete (optional).
+  - `:chat_id` (string): The specific chat ID to delete (requires `:user`, optional).
+
+  ## Returns
+
+  - `{:ok, :success}`: Confirmation of deletion.
+  - `{:ok, :deleted}`: If selected chat has already been deleted
+  - `{:error, term()}`: An error if deletion failed or confirmation was not given.
+
+  ## Examples
+
+      # Delete user chat
+      AiFlow.Ollama.Chat.chat!(chat_id: "my_chat", user_id: "user1")
+      :success
+
+      # If the selected chat has already been deleted
+      AiFlow.Ollama.Chat.chat(chat_id: "my_chat", user_id: "user1")
+      :deleted
+  """
+  @spec clear_chat_history(keyword()) :: {:ok, :deleted} | {:error, term()}
+  def clear_chat_history!(opts \\ []) do
+    case clear_chat_history(opts) do
+      {:ok, result} -> result
+      {:error, error} -> error
+      other -> other
     end
   end
 
@@ -536,7 +545,9 @@ defmodule AiFlow.Ollama.Chat do
           "chats" => %{},
           "created_at" => DateTime.utc_now() |> DateTime.to_iso8601()
         }
+
         save_chat_data(config, updated_chat_data)
+        {:ok, :success}
       end
     else
       {:error, "Please confirm deletion of all chats by passing 'confirm: true' as an option."}
@@ -554,10 +565,13 @@ defmodule AiFlow.Ollama.Chat do
           "chats" => updated_chats,
           "created_at" => Map.get(chat_data, "created_at")
         }
+
         save_chat_data(config, updated_chat_data)
+        {:ok, :success}
       end
     else
-      {:error, "Please confirm deletion of all chats for user '#{user_id}' by passing 'confirm: true' as an option, or specify a chat ID with 'chat: chat_id' to delete a specific chat."}
+      {:error,
+       "Please confirm deletion of all chats for user '#{user_id}' by passing 'confirm: true' as an option, or specify a chat ID with 'chat: chat_id' to delete a specific chat."}
     end
   end
 
@@ -566,55 +580,138 @@ defmodule AiFlow.Ollama.Chat do
   @spec delete_specific_chat(map(), String.t() | nil, String.t()) :: {:ok, :deleted} | {:error, term()}
   defp delete_specific_chat(config, user_id, chat_id) do
     with {:ok, chat_data} <- load_chat_data(config),
-         user_chats when is_map(user_chats) <- Map.get(chat_data, "chats", %{}) |> Map.get(user_id || "default_user", %{}),
+         user_chats when is_map(user_chats) <-
+           get_in(chat_data, ["chats", user_id || "default_user"]) || %{},
          true <- Map.has_key?(user_chats, chat_id) do
       updated_user_chats = Map.delete(user_chats, chat_id)
-      updated_chats = Map.put(Map.get(chat_data, "chats", %{}), user_id || "default_user", updated_user_chats)
+      updated_chats =
+        Map.put(Map.get(chat_data, "chats", %{}), user_id || "default_user", updated_user_chats)
+
       updated_chat_data = %{
         "chats" => updated_chats,
         "created_at" => Map.get(chat_data, "created_at")
       }
+
       save_chat_data(config, updated_chat_data)
+      {:ok, :success}
     else
       {:error, reason} -> {:error, reason}
       _ -> {:ok, :deleted}
     end
   end
 
-  # --- Debugging Functions ---
+  @doc """
+  Loads the raw chat data from the configured file and converts its keys to atoms for easier debugging.
 
-  # Loads and logs chat data for debugging purposes
-  @doc false
+  This function is intended for debugging purposes. It reads the chat data file specified in the
+  configuration, parses the JSON content, and then recursively converts all string keys in the
+  resulting map to atom keys. This can make the data structure easier to inspect and work with
+  in an interactive debugging session (e.g., in `iex`).
+
+  ## Returns
+
+  - `{:ok, map()}`: A map representing the chat data with atom keys.
+  - `{:error, term()}`: An error reason if the file could not be read or parsed.
+
+  ## Examples
+
+      # In a successful case, loads and atomizes the chat data
+      iex> AiFlow.Ollama.Chat.debug_load_chat_data()
+      {:ok,
+      %{
+        chats: %{
+          "default_user" => %{
+            "my_chat" => %{
+              "created_at" => "2023-10-27T10:00:00Z",
+              "messages" => [
+                %{"content" => "Hello", "role" => "user", "timestamp" => "2023-10-27T10:00:01Z"},
+                %{"content" => "Hi there!", "role" => "assistant", "timestamp" => "2023-10-27T10:00:02Z"}
+              ],
+              "model" => "llama3.1",
+              "name" => "my_chat",
+              "updated_at" => "2023-10-27T10:00:02Z"
+            }
+          }
+        },
+        created_at: "2023-10-27T10:00:00Z"
+      }}
+
+      # In an error case (e.g., file not found or invalid JSON)
+      iex> # Assuming the chat file is corrupted
+      iex> AiFlow.Ollama.Chat.debug_load_chat_data()
+      {:error, %Jason.DecodeError{data: "<<", position: 0, token: nil}}
+  """
   @spec debug_load_chat_data() :: {:ok, map()} | {:error, term()}
-  defp debug_load_chat_data do
+  def debug_load_chat_data do
     config = AiFlow.Ollama.get_config()
+
     case load_chat_data(config) do
       {:ok, data} when is_map(data) ->
         atomized = atomize_keys(data)
-        Logger.debug("Debug chat data (atom keys): #{inspect(atomized)}")
         {:ok, atomized}
+
       {:ok, data} ->
-        Logger.debug("Debug chat data (other): #{inspect(data)}")
         {:ok, data}
+
       {:error, reason} ->
         Logger.error("Error loading chat data: #{inspect(reason)}")
         {:error, reason}
     end
   end
 
-  # Shows chat history and logs it for debugging purposes
-  @doc false
+  @doc """
+  Retrieves and returns the message history for a specific chat and user, intended for debugging purposes.
+
+  This function directly fetches the list of messages associated with a given chat ID and user ID
+  from the chat data file. It's a simplified way to inspect the raw message history without any
+  additional processing or error wrapping, making it useful for debugging chat state or history
+  issues.
+
+  ## Parameters
+
+  - `chat_id`: The unique identifier of the chat session (string).
+  - `user_id`: The identifier of the user (string, defaults to `"default_user"`).
+
+  ## Returns
+
+  - `list()`: A list of message maps (e.g., `[ %{"role" => "user", "content" => "...", ...}, ...]`)
+    belonging to the specified chat and user. Returns an empty list `[]` if the chat/user is not
+    found or if there's an error loading the chat data.
+
+  ## Examples
+
+      # Retrieve messages for an existing chat
+      iex> AiFlow.Ollama.Chat.debug_show_chat_history("my_chat", "user1")
+      [
+        %{"role" => "user", "content" => "Hello!", "timestamp" => "2023-10-27T10:00:00Z"},
+        %{"role" => "assistant", "content" => "Hi there!", "timestamp" => "2023-10-27T10:00:01Z"}
+      ]
+
+      # Retrieve messages for a non-existent chat (returns empty list)
+      iex> AiFlow.Ollama.Chat.debug_show_chat_history("unknown_chat", "user1")
+      []
+
+      # Retrieve messages using the default user ID
+      iex> AiFlow.Ollama.Chat.debug_show_chat_history("default_chat")
+      [%{"role" => "user", "content" => "Default user message", ...}]
+
+      # If there's an error loading the chat file (e.g., corrupt JSON), it logs the error and returns []
+      # (Assuming the chat file is corrupted)
+      iex> AiFlow.Ollama.Chat.debug_show_chat_history("any_chat")
+      # 12:00:00.000 [error] Failed to load chat data for debug: %Jason.DecodeError{...}
+      []
+  """
   @spec debug_show_chat_history(String.t(), String.t()) :: list()
-  defp debug_show_chat_history(chat_id, user_id \\ "default_user") do
+  def debug_show_chat_history(chat_id, user_id \\ "default_user") do
     config = AiFlow.Ollama.get_config()
+
     case load_chat_data(config) do
       {:ok, chat_data} ->
-        chats = Map.get(chat_data, "chats", %{})
-        user_chats = Map.get(chats, user_id, %{})
-        chat = Map.get(user_chats, chat_id, %{"messages" => []})
-        messages = Map.get(chat, "messages", [])
-        Logger.debug("Debug show chat history messages: #{inspect(messages)}")
+        messages =
+          get_in(chat_data, ["chats", user_id, chat_id, "messages"]) || []
+
         messages
+
       {:error, reason} ->
         Logger.error("Failed to load chat data for debug: #{inspect(reason)}")
         []
@@ -622,24 +719,32 @@ defmodule AiFlow.Ollama.Chat do
   end
 
   @doc """
-  Checks the integrity and format of the chat data file.
+  Checks the integrity and format of the chat data file {It will be deprecated later =)}
 
   ## Returns
+
   - `{:ok, map()}`: The parsed chat data if the file is valid.
   - `{:error, term()}`: An error if the file is missing or malformed.
   """
   @spec check_chat_file() :: {:ok, map()} | {:error, term()}
   def check_chat_file do
     config = AiFlow.Ollama.get_config()
+
     case @file_module.read(config.chat_file) do
       {:ok, content} ->
         case Jason.decode(content) do
           {:ok, data} ->
             if Map.has_key?(data, "chats"), do: {:ok, data}, else: {:error, :invalid_format}
-          {:error, reason} -> {:error, reason}
+
+          {:error, reason} ->
+            {:error, reason}
         end
-      {:error, :enoent} -> {:error, :file_not_found}
-      {:error, reason} -> {:error, reason}
+
+      {:error, :enoent} ->
+        {:error, :file_not_found}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -654,16 +759,20 @@ defmodule AiFlow.Ollama.Chat do
           {:ok, data} -> {:ok, data}
           {:error, reason} -> {:error, reason}
         end
+
       {:error, :enoent} ->
         initial_data = %{
           "chats" => %{},
           "created_at" => DateTime.utc_now() |> DateTime.to_iso8601()
         }
+
         case save_chat_data(config, initial_data) do
           :ok -> {:ok, initial_data}
           {:error, reason} -> {:error, reason}
         end
-      {:error, reason} -> {:error, reason}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -684,6 +793,8 @@ defmodule AiFlow.Ollama.Chat do
   # Converts string keys in a map to atoms (for debugging)
   @doc false
   defp atomize_keys(map) when is_map(map) do
-    Enum.into(map, %{}, fn {k, v} -> {if(is_binary(k), do: String.to_atom(k), else: k), v} end)
+    Enum.into(map, %{}, fn {k, v} ->
+      {if(is_binary(k), do: String.to_atom(k), else: k), v}
+    end)
   end
 end

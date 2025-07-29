@@ -45,10 +45,6 @@ defmodule AiFlow.Ollama.Model do
   require Logger
   alias AiFlow.Ollama.{Config, Error, HTTPClient}
 
-  # ETS tables for caching
-  @models_cache :ai_flow_ollama_models_cache
-  @model_info_cache :ai_flow_ollama_model_info_cache
-
   @doc """
   Lists available local models.
 
@@ -89,31 +85,12 @@ defmodule AiFlow.Ollama.Model do
   def list_models(opts \\ []) do
     config = AiFlow.Ollama.get_config()
     debug = Keyword.get(opts, :debug, false)
-    short = Keyword.get(opts, :short, true)
+    field = Keyword.get(opts, :field, {:body, "models"})
     retries = Keyword.get(opts, :retries, 0)
-
     url = Config.build_url(config, "/api/tags")
 
-    http_response = HTTPClient.request(:get, url, nil, config.timeout, debug, retries, :list_models)
-
-    case http_response do
-      {:ok, %Req.Response{status: 200, body: %{"models" => models_list}}} when is_list(models_list) ->
-        result = if short do
-          Enum.map(models_list, fn model_info ->
-            Map.get(model_info, "name", "")
-          end)
-        else
-          models_list
-        end
-        {:ok, result}
-
-      _ ->
-        HTTPClient.handle_response(http_response, "models", :list_models, opts)
-        |> case do
-          {:ok, _} -> {:error, Error.unknown("Unexpected response format")}
-          error_tuple -> error_tuple
-        end
-    end
+    HTTPClient.request(:get, url, nil, config.timeout, debug, retries, :list_models)
+    |> HTTPClient.handle_response(field, :show_model, opts)
   end
 
   @doc """
@@ -137,8 +114,11 @@ defmodule AiFlow.Ollama.Model do
   """
   @spec list_models!(keyword()) :: list() | term()
   def list_models!(opts \\ []) do
-    list_models(opts)
-    |> HTTPClient.handle_result(:list_models!)
+    case list_models(opts) do
+      {:ok, result} -> result
+      {:error, error} -> error
+      other -> other
+    end
   end
 
   @doc """
@@ -175,7 +155,7 @@ defmodule AiFlow.Ollama.Model do
       {:ok, %Req.Response{status: 200, body: %{...}}} = AiFlow.Ollama.Model.show_model("llama3.1", short: false)
 
       # Extract a specific field from the model info (e.g., license)
-      {:ok, license_text} = AiFlow.Ollama.Model.show_model("llama3.1", short: true, field: "license")
+      {:ok, license_text} = AiFlow.Ollama.Model.show_model("llama3.1", short: true, field: :body)
   """
   @spec show_model(String.t(), keyword()) :: {:ok, map() | term()} | {:error, Error.t()}
   def show_model(name, opts \\ []) do
@@ -183,14 +163,13 @@ defmodule AiFlow.Ollama.Model do
       config = AiFlow.Ollama.get_config()
       debug = Keyword.get(opts, :debug, false)
       retries = Keyword.get(opts, :retries, 0)
-      field = Keyword.get(opts, :field, nil)
+      field = Keyword.get(opts, :field, {:body, "details"})
 
       url = Config.build_url(config, "/api/show")
       body = %{name: name}
 
       HTTPClient.request(:post, url, body, config.timeout, debug, retries, :show_model)
       |> HTTPClient.handle_response(field, :show_model, opts)
-
     else
       {:error, Error.invalid("Model name must be a non-empty string")}
     end
@@ -218,83 +197,73 @@ defmodule AiFlow.Ollama.Model do
   """
   @spec show_model!(String.t(), keyword()) :: map() | term()
   def show_model!(name, opts \\ []) do
-    show_model(name, opts)
-    |> HTTPClient.handle_result(:show_model)
-    |> case do
-      %Req.Response{} = resp -> resp
-      body when is_map(body) -> body
+    case show_model(name, opts) do
+      {:ok, result} -> result
+      {:error, error} -> error
       other -> other
     end
   end
 
   @doc """
   Pulls a model from a remote registry.
-
   Downloads a model from the Ollama library or another registry to the local machine.
   This function handles streaming responses from the API.
 
   ## Parameters
-
   - `name`: The name of the model to pull (string).
   - `opts`: Keyword list of options:
     - `:debug` (boolean): Enables debug logging (default: `false`).
     - `:retries` (integer): Number of retry attempts for failed requests (default: `0`).
     - `:stream` (boolean): Whether to request a streaming response (default: `true`).
-                           Note: Streaming responses require special handling not fully covered
-                           by the standard `HTTPClient.handle_response/4`. This function
-                           might need specific logic for streaming.
-    - `:short` (boolean): If `false`, attempts to return the raw `%Req.Response{}`.
-                          Streaming responses make this complex. (default: `true`).
-    - `:field` (String.t()): When `:short` is `true`, specifies the field to extract.
-                             For streaming, this is usually not applicable. (default: `"status"`).
+    - `:short` (boolean): If `false`, returns the raw response (default: `true`).
+    - `:field` (String.t()): When `:short` is `true`, specifies the field to extract (default: `:status`).
+    - `:display` (boolean): If `true`, displays a progress bar during pull (default: `true`).
 
   ## Returns
-
   - `{:ok, term()}`: Typically `:success` or a map with status information when the pull completes.
-                     For streaming, this might be the final parsed status message.
   - `{:error, Error.t()}`: An error struct if the request fails or is interrupted.
 
   ## Examples
-
       # Pull a model
       {:ok, :success} = AiFlow.Ollama.Model.pull_model("llama3.1")
 
       # Pull with debug logging
       {:ok, _} = AiFlow.Ollama.Model.pull_model("llama3.1", debug: true)
 
-      # Pull without streaming (if supported by Ollama API)
-      {:ok, full_response} = AiFlow.Ollama.Model.pull_model("llama3.1", stream: false, short: false)
+      # Pull with progress display
+      {:ok, _} = AiFlow.Ollama.Model.pull_model("llama3.1", display: true)
+
+      # Show the entire response
+      {:ok, _} = AiFlow.Ollama.Model.pull_model("llama3.1", short: false)
+
+      # Show a specific response field
+      {:ok, _} = AiFlow.Ollama.Model.pull_model("llama3.1", field: :body)
   """
   @spec pull_model(String.t(), keyword()) :: {:ok, term()} | {:error, Error.t()}
   def pull_model(name, opts \\ []) do
-    if is_binary(name) and name != "" do
-      config = AiFlow.Ollama.get_config()
-      debug = Keyword.get(opts, :debug, false)
-      retries = Keyword.get(opts, :retries, 0)
-      url = Config.build_url(config, "/api/pull")
+    config = AiFlow.Ollama.get_config()
+    debug = Keyword.get(opts, :debug, false)
+    display = Keyword.get(opts, :display, true)
+    retries = Keyword.get(opts, :retries, 0)
+    field = Keyword.get(opts, :field, :status)
+    url = Config.build_url(config, "/api/pull")
 
-      body_opts = Keyword.drop(opts, [:debug, :retries, :short, :field])
-      body = Map.merge(%{name: name, stream: Keyword.get(opts, :stream, true)}, Enum.into(body_opts, %{}))
+    with true <- is_binary(name) and name != "" do
+      body_opts = Keyword.drop(opts, [:debug, :retries, :short, :field, :display])
 
-      http_response = HTTPClient.request(:post, url, body, config.timeout, debug, retries, :pull_model)
+      body =
+        Map.merge(
+          %{name: name, stream: Keyword.get(opts, :stream, true)},
+          Enum.into(body_opts, %{})
+        )
 
-      success_handler = fn body ->
-        check_pull_success(body)
-      end
+      if display, do: IO.puts("📥 Pulling model: #{name}")
 
-      HTTPClient.handle_response(http_response, "status", :pull_model, opts ++ [success_handler: success_handler])
+      HTTPClient.request(:post, url, body, config.timeout, debug, retries, :pull_model)
+      |> HTTPClient.handle_response(field, :generate_embeddings_legacy, opts)
     else
-      {:error, Error.invalid("Model name must be a non-empty string")}
+      _ -> {:error, Error.invalid("Model name must be a non-empty string")}
     end
-  end
-
-  # Helper to check pull success, reducing nesting in the main function
-  defp check_pull_success(body) do
-     if is_map(body) and (Map.get(body, "status") == "success" or Map.has_key?(body, "model")) do
-       :success
-     else
-       body
-     end
   end
 
   @doc """
@@ -318,8 +287,11 @@ defmodule AiFlow.Ollama.Model do
   """
   @spec pull_model!(String.t(), keyword()) :: term()
   def pull_model!(name, opts \\ []) do
-    pull_model(name, opts)
-    |> HTTPClient.handle_result(:pull_model)
+     case pull_model(name, opts) do
+      {:ok, result} -> result
+      {:error, error} -> error
+      other -> other
+    end
   end
 
   @doc """
@@ -355,32 +327,23 @@ defmodule AiFlow.Ollama.Model do
     if is_binary(name) and name != "" do
       config = AiFlow.Ollama.get_config()
       debug = Keyword.get(opts, :debug, false)
+      field = Keyword.get(opts, :field, :status)
       retries = Keyword.get(opts, :retries, 0)
       url = Config.build_url(config, "/api/push")
 
       body_opts = Keyword.drop(opts, [:debug, :retries, :short, :field])
-      body = Map.merge(%{name: name, stream: Keyword.get(opts, :stream, true)}, Enum.into(body_opts, %{}))
 
-      http_response = HTTPClient.request(:post, url, body, config.timeout, debug, retries, :push_model)
+      body =
+        Map.merge(
+          %{name: name, stream: Keyword.get(opts, :stream, true)},
+          Enum.into(body_opts, %{})
+        )
 
-      success_handler = fn body ->
-        parsed = parse_streaming_response(body)
-        handle_parsed_push_response(parsed)
-      end
-
-      HTTPClient.handle_response(http_response, "status", :push_model, opts ++ [success_handler: success_handler])
+      HTTPClient.request(:post, url, body, config.timeout, debug, retries, :push_model)
+      |> HTTPClient.handle_response(field, :push_model, opts)
     else
       {:error, Error.invalid("Model name must be a non-empty string")}
     end
-  end
-
-  # Helper to handle parsed push response, reducing nesting
-  defp handle_parsed_push_response(parsed) do
-     if success_response?(parsed) do
-        :success
-     else
-        parsed
-     end
   end
 
   @doc """
@@ -404,8 +367,11 @@ defmodule AiFlow.Ollama.Model do
   """
   @spec push_model!(String.t(), keyword()) :: :success | term()
   def push_model!(name, opts \\ []) do
-    push_model(name, opts)
-    |> HTTPClient.handle_result(:push_model)
+    case push_model(name, opts) do
+      {:ok, result} -> result
+      {:error, error} -> error
+      other -> other
+    end
   end
 
   @doc """
@@ -420,7 +386,7 @@ defmodule AiFlow.Ollama.Model do
     - `:retries` (integer): Number of retry attempts for failed requests (default: `0`).
     - `:short` (boolean): If `true`, processes the response to extract a specific part. (default: `true`).
     - `:field` (String.t()): When `:short` is `true`, specifies the field to extract.
-                             Commonly `"models"` for the list of running model objects. (default: `"models"`).
+                             Commonly `"models"` for the list of running model objects. (default: `{:body, "models"}`).
 
   ## Returns
 
@@ -436,20 +402,22 @@ defmodule AiFlow.Ollama.Model do
       # Enable debug logging
       {:ok, _} = AiFlow.Ollama.Model.list_running_models(debug: true)
 
-      # Get raw HTTP response
-      {:ok, %Req.Response{status: 200, body: %{"models" => [...]}}} = AiFlow.Ollama.Model.list_running_models(short: false)
+      # Show the entire response
+      {:ok, _} = AiFlow.Ollama.Model.list_running_models(short: false)
+
+      # Show a specific response field
+      {:ok, _} = AiFlow.Ollama.Model.list_running_models(field: :headers)
   """
   @spec list_running_models(keyword()) :: {:ok, list() | term()} | {:error, Error.t()}
   def list_running_models(opts \\ []) do
     config = AiFlow.Ollama.get_config()
     debug = Keyword.get(opts, :debug, false)
-    short = Keyword.get(opts, :short, true) # Default to true for running models
+    field = Keyword.get(opts, :field, {:body, "models"})
     retries = Keyword.get(opts, :retries, 0)
     url = Config.build_url(config, "/api/ps")
 
-    http_response = HTTPClient.request(:get, url, nil, config.timeout, debug, retries, :list_running_models)
-
-    HTTPClient.handle_response(http_response, "models", :list_running_models, opts)
+    HTTPClient.request(:get, url, nil, config.timeout, debug, retries, :list_running_models)
+    |> HTTPClient.handle_response(field, :list_running_models, opts)
   end
 
   @doc """
@@ -472,8 +440,11 @@ defmodule AiFlow.Ollama.Model do
   """
   @spec list_running_models!(keyword()) :: list() | term()
   def list_running_models!(opts \\ []) do
-    list_running_models(opts)
-    |> HTTPClient.handle_result(:list_running_models)
+    case list_running_models(opts) do
+      {:ok, result} -> result
+      {:error, error} -> error
+      other -> other
+    end
   end
 
   @doc """
@@ -489,7 +460,7 @@ defmodule AiFlow.Ollama.Model do
     - `:debug` (boolean): Enables debug logging (default: `false`).
     - `:retries` (integer): Number of retry attempts for failed requests (default: `0`).
     - `:short` (boolean): If `false`, returns the raw `%Req.Response{}`. (default: `true`).
-    - `:field` (String.t()): When `:short` is `true`, specifies the field to extract. (default: `"status"`).
+    - `:field` (String.t()): When `:short` is `true`, specifies the field to extract. (default: `:status`).
 
   ## Returns
 
@@ -509,19 +480,13 @@ defmodule AiFlow.Ollama.Model do
     if is_binary(model) and model != "" do
       config = AiFlow.Ollama.get_config()
       debug = Keyword.get(opts, :debug, false)
+      field = Keyword.get(opts, :field, :status)
       retries = Keyword.get(opts, :retries, 0)
       url = Config.build_url(config, "/api/generate")
       body = %{model: model, prompt: "", stream: false}
 
-      http_response = HTTPClient.request(:post, url, body, config.timeout, debug, retries, :load_model)
-
-      success_handler = fn
-        %{"done" => true} -> :success
-        %{"status" => "success"} -> :success
-        body -> body
-      end
-
-      HTTPClient.handle_response(http_response, "status", :load_model, opts ++ [success_handler: success_handler])
+      HTTPClient.request(:post, url, body, config.timeout, debug, retries, :load_model)
+      |> HTTPClient.handle_response(field, :load_model, opts)
     else
       {:error, Error.invalid("Model name must be a non-empty string")}
     end
@@ -548,8 +513,11 @@ defmodule AiFlow.Ollama.Model do
   """
   @spec load_model!(String.t(), keyword()) :: :success | term()
   def load_model!(model, opts \\ []) do
-    load_model(model, opts)
-    |> HTTPClient.handle_result(:load_model)
+    case load_model(model, opts) do
+      {:ok, result} -> result
+      {:error, error} -> error
+      other -> other
+    end
   end
 
   @doc """
@@ -590,36 +558,16 @@ defmodule AiFlow.Ollama.Model do
     if is_binary(name) and name != "" do
       config = AiFlow.Ollama.get_config()
       debug = Keyword.get(opts, :debug, false)
+      field = Keyword.get(opts, :field, :status)
       retries = Keyword.get(opts, :retries, 0)
       url = Config.build_url(config, "/api/create")
 
-      body =
-        case Keyword.get(opts, :modelfile) do
-          mf when is_binary(mf) and mf != "" ->
-            %{name: name, stream: Keyword.get(opts, :stream, true), modelfile: mf}
-          _ ->
-            %{name: name, model: model, system: system, stream: Keyword.get(opts, :stream, true)}
-        end
+      body = %{name: name, from: model, system: system}
 
-      http_response = HTTPClient.request(:post, url, body, config.timeout, debug, retries, :create_model)
-
-      success_handler = fn body ->
-        check_create_success(body)
-      end
-
-      HTTPClient.handle_response(http_response, "status", :create_model, opts ++ [success_handler: success_handler])
+      HTTPClient.request(:post, url, body, config.timeout, debug, retries, :create_model)
+      |> HTTPClient.handle_response(field, :create_model, opts)
     else
       {:error, Error.invalid("Model name must be a non-empty string")}
-    end
-  end
-
-  # Helper to check create success, avoiding =~ in guards and reducing nesting
-  defp check_create_success(body) do
-    case body do
-      %{"status" => status} when is_binary(status) ->
-        if String.contains?(status, "success"), do: :success, else: body
-      _ ->
-        body
     end
   end
 
@@ -646,8 +594,11 @@ defmodule AiFlow.Ollama.Model do
   """
   @spec create_model!(String.t(), String.t(), String.t(), keyword()) :: :success | term()
   def create_model!(name, model, system, opts \\ []) do
-    create_model(name, model, system, opts)
-    |> HTTPClient.handle_result(:create_model)
+    case create_model(name, model, system, opts) do
+      {:ok, result} -> result
+      {:error, error} -> error
+      other -> other
+    end
   end
 
   @doc """
@@ -689,27 +640,14 @@ defmodule AiFlow.Ollama.Model do
     if is_binary(source) and source != "" and is_binary(destination) and destination != "" do
       config = AiFlow.Ollama.get_config()
       debug = Keyword.get(opts, :debug, false)
+      field = Keyword.get(opts, :field, :status)
       retries = Keyword.get(opts, :retries, 0)
       url = Config.build_url(config, "/api/copy")
 
       body = %{source: source, destination: destination}
 
-      http_response = HTTPClient.request(:post, url, body, config.timeout, debug, retries, :copy_model)
-
-      case http_response do
-        {:ok, %Req.Response{status: status}} when status >= 200 and status < 300 ->
-          short = Keyword.get(opts, :short, true)
-          if short do
-            {:ok, :success}
-          else
-            {:ok, http_response}
-          end
-        {:ok, %Req.Response{} = error_response} ->
-          {:error, Error.http(error_response.status, "HTTP request failed")}
-
-        {:error, _reason} = error_tuple ->
-          error_tuple
-      end
+      HTTPClient.request(:post, url, body, config.timeout, debug, retries, :copy_model)
+      |> HTTPClient.handle_response(field, :copy_model, opts)
     else
       {:error, Error.invalid("Source and destination model names must be non-empty strings")}
     end
@@ -740,7 +678,8 @@ defmodule AiFlow.Ollama.Model do
   def copy_model!(source, destination, opts \\ []) do
     case copy_model(source, destination, opts) do
       {:ok, result} -> result
-      {:error, error} -> raise RuntimeError, message: "Copy model failed: #{inspect(error)}"
+      {:error, error} -> error
+      other -> other
     end
   end
 
@@ -777,16 +716,14 @@ defmodule AiFlow.Ollama.Model do
     if is_binary(name) and name != "" do
       config = AiFlow.Ollama.get_config()
       debug = Keyword.get(opts, :debug, false)
+      field = Keyword.get(opts, :field, :status)
       retries = Keyword.get(opts, :retries, 0)
       url = Config.build_url(config, "/api/delete")
 
       body = %{name: name}
 
-      http_response = HTTPClient.request(:delete, url, body, config.timeout, debug, retries, :delete_model)
-
-      success_handler = fn _ -> :success end
-
-      HTTPClient.handle_response(http_response, "status", :delete_model, opts ++ [success_handler: success_handler])
+      HTTPClient.request(:delete, url, body, config.timeout, debug, retries, :delete_model)
+      |> HTTPClient.handle_response(field, :generate_embeddings, opts)
     else
       {:error, Error.invalid("Model name must be a non-empty string")}
     end
@@ -813,37 +750,10 @@ defmodule AiFlow.Ollama.Model do
   """
   @spec delete_model!(String.t(), keyword()) :: :success | term()
   def delete_model!(name, opts \\ []) do
-    delete_model(name, opts)
-    |> HTTPClient.handle_result(:delete_model)
-  end
-
-  # --- Private Helper Functions (if needed) ---
-
-  # These helper functions are assumed to exist based on the original code snippet.
-  # Their implementation would depend on the specific format of streaming responses.
-  # They are not documented as they are internal.
-
-  # Placeholder for streaming response parsing logic
-  defp parse_streaming_response(body) do
-    # Implementation would depend on how Ollama streams data
-    # Often involves parsing NDJSON or handling chunks
-    body
-  end
-
-  defp success_response?(parsed) do
-    case parsed do
-      %{"status" => status} when is_binary(status) ->
-        String.contains?(status, "success")
-      %{"done" => true} -> true
-      _ -> false
-    end
-  end
-
-  # Ensure ETS cache tables exist (if caching is used)
-  defp ensure_cache(table) do
-    case :ets.whereis(table) do
-      :undefined -> :ets.new(table, [:named_table, :public, :set])
-      tid -> tid
+    case delete_model(name, opts) do
+      {:ok, result} -> result
+      {:error, error} -> error
+      other -> other
     end
   end
 end

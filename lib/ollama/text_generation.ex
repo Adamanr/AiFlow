@@ -60,7 +60,7 @@ defmodule AiFlow.Ollama.TextGeneration do
       - `false`: Returns the full JSON response map from the Ollama API.
     - `:field` (String.t()): When `:short` is `true`, specifies which field from the API response
                              to extract and return. If `:short` is `false`, this option is typically
-                             ignored by `HTTPClient.handle_response/4` (default: `"response"`).
+                             ignored by `HTTPClient.handle_response/4` (default: `{:body, "response"}`).
 
   ## Returns
 
@@ -122,17 +122,14 @@ defmodule AiFlow.Ollama.TextGeneration do
     config = AiFlow.Ollama.get_config()
     debug = Keyword.get(opts, :debug, false)
     model = Keyword.get(opts, :model, config.model)
+    field = Keyword.get(opts, :field, {:body, "response"})
+    stream = Keyword.get(opts, :stream, false)
     url = Config.build_url(config, "/api/generate")
 
-    ollama_opts = Keyword.drop(opts, [:debug, :short, :field, :retries])
-    body = Map.merge(
-      %{model: model, prompt: prompt, stream: false},
-      Enum.into(ollama_opts, %{})
-    )
+    body = %{model: model, prompt: prompt, stream: stream}
 
-    http_response = HTTPClient.request(:post, url, body, config.timeout, debug, 0, :query)
-
-    HTTPClient.handle_response(http_response, "response", :query, opts)
+    HTTPClient.request(:post, url, body, config.timeout, debug, 0, :query)
+    |> HTTPClient.handle_response(field, :query, opts)
   end
 
   @doc """
@@ -167,7 +164,10 @@ defmodule AiFlow.Ollama.TextGeneration do
   """
   @spec query!(String.t(), keyword()) :: String.t() | term()
   def query!(prompt, opts \\ []) do
-    query(prompt, opts)
-    |> HTTPClient.handle_result(:query)
+    case query(prompt, opts) do
+      {:ok, result} -> result
+      {:error, error} -> error
+      other -> other
+    end
   end
 end

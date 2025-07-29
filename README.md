@@ -171,9 +171,6 @@ all_chats = AiFlow.Ollama.show_all_chats()
 # Check chat file
 {:ok, chat_data} = AiFlow.Ollama.check_chat_file()
 
-# Show raw file content
-content = AiFlow.Ollama.show_chat_file_content()
-
 # Debug chat history
 messages = AiFlow.Ollama.debug_show_chat_history("chat_id", "user_id")
 ```

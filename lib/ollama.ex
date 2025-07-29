@@ -17,14 +17,15 @@ defmodule AiFlow.Ollama do
   ## Usage
   ```elixir
   {:ok, _pid} = AiFlow.Ollama.start_link()
-  {:ok, text} = AiFlow.Ollama.TextGeneration.query("What is Elixir?", "llama3.1")
-  {:ok, answer} = AiFlow.Ollama.Chat.send("Hello!", "chat1", "user1")
-  {:ok, models} = AiFlow.Ollama.Model.list()
+  {:ok, text} = AiFlow.Ollama.query("What is Elixir?", "llama3.1")
+  {:ok, answer} = AiFlow.Ollama.chat("Hello!", "chat1", "user1")
+  {:ok, models} = AiFlow.Ollama.list_models()
   ```
 
   ## Common Options
   - `:debug` (boolean): Enable debug logging (default: false)
   - `:short` (boolean): Disable short variant response (default: true)
+  - `:field` (atom | string): show specificate field from response
   - `:retries` (integer): Number of retries on network error (default: 0)
   - `:cache_ttl` (integer): Cache time-to-live in ms (default: 30_000)
   """
@@ -76,13 +77,12 @@ defmodule AiFlow.Ollama do
   defdelegate list_running_models!(opts \\ []), to: Model
   defdelegate load_model(model, opts \\ []), to: Model
   defdelegate load_model!(model, opts \\ []), to: Model
-  defdelegate show_chat_history(chat_id, user_id \\ "default_user"), to: Chat
-  defdelegate show_chat_history!(chat_id, user_id \\ "default_user"), to: Chat
+  defdelegate show_chat_history(opts \\ []), to: Chat
+  defdelegate show_chat_history!(opts \\ []), to: Chat
   defdelegate show_all_chats, to: Chat
   defdelegate show_all_chats!, to: Chat
-  defdelegate show_chat_file_content, to: Chat
-  defdelegate show_chat_file_content!, to: Chat
   defdelegate clear_chat_history(opts \\ []), to: Chat
+  defdelegate clear_chat_history!(opts \\ []), to: Chat
   defdelegate debug_load_chat_data, to: Chat
   defdelegate debug_show_chat_history(chat_id, user_id \\ "default_user"), to: Chat
   defdelegate check_chat_file, to: Chat

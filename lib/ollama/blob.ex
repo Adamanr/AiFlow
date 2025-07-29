@@ -1,37 +1,39 @@
 defmodule AiFlow.Ollama.Blob do
   @moduledoc """
-  Manages blob operations for the Ollama API, providing functions to check and upload blobs.
+  Manages blob operations for the Ollama API.
 
-  This module handles interactions with the Ollama API's blob endpoints, allowing users to check
-  if a blob exists by its SHA256 digest and upload new blobs from local files. It uses the
-  `AiFlow.Ollama.HTTPClient` for HTTP requests and supports configuration options like debugging,
-  retries, and response formatting with `:short` and `:field`.
+  Provides functions to check and upload blobs. This module handles interactions with the
+  Ollama API's blob endpoints, allowing users to check if a blob exists by its SHA256 digest
+  and upload new blobs from local files. It uses `AiFlow.Ollama.HTTPClient` for HTTP requests.
 
   ## Configuration
+
   The module relies on `AiFlow.Ollama.Config` for endpoint and timeout settings. Ensure that
   the configuration is properly set up before using these functions.
 
   ## Error Handling
+
   Functions return `{:ok, result}` on success or `{:error, Error.t()}` on failure. The bang (`!`)
   variants raise an `AiFlow.Ollama.Error` exception on failure for convenience in contexts where
   errors are not explicitly handled.
 
   ## Examples
+
       # Check if a blob exists
       iex> AiFlow.Ollama.Blob.check_blob("29fdb92e57cf0827ded04ae6461b5931d01fa595843f55d36f5b275a52087dd2")
-      {:ok, :exists}
+      {:ok, 200}
 
       # Check blob and raise on error
       iex> AiFlow.Ollama.Blob.check_blob!("29fdb92e57cf0827ded04ae6461b5931d01fa595843f55d36f5b275a52087dd2")
-      :exists
+      200
 
       # Upload a blob
       iex> AiFlow.Ollama.Blob.create_blob("29fdb92e57cf0827ded04ae6461b5931d01fa595843f55d36f5b275a52087dd2", "/path/to/file.bin")
-      {:ok, :created}
+      {:ok, 200} depending on the server's response
 
       # Upload a blob and raise on error
       iex> AiFlow.Ollama.Blob.create_blob!("29fdb92e57cf0827ded04ae6461b5931d01fa595843f55d36f5b275a52087dd2", "/path/to/file.bin")
-      :created
+      200
 
       # Get raw HTTP response for check_blob
       iex> AiFlow.Ollama.Blob.check_blob("29fdb92e57cf0827ded04ae6461b5931d01fa595843f55d36f5b275a52087dd2", short: false)
@@ -43,35 +45,42 @@ defmodule AiFlow.Ollama.Blob do
   """
 
   require Logger
+
   alias AiFlow.Ollama.{Config, Error, HTTPClient}
 
   @sha256_regex ~r/^[a-fA-F0-9]{64}$/
+  @type digest :: String.t()
+  @type file_path :: String.t()
+  @type check_result :: :exists | :not_found | term()
+  @type create_result :: :created | :success | term()
 
   @doc """
   Checks if a blob exists by its SHA256 digest.
 
   Sends a HEAD request to the Ollama API to verify the existence of a blob identified by its
-  SHA256 digest. Returns `:exists` if the blob is found, `:not_found` if it does not exist, or
-  an error if the request fails.
+  SHA256 digest.
 
   ## Parameters
-    - `digest`: A string representing the SHA256 digest of the blob (64 hex characters).
-    - `opts`: Optional keyword list of options:
-      - `:debug` (boolean): Enables debug logging (default: `false`).
-      - `:retries` (integer): Number of retry attempts for failed requests (default: `0`).
-      - `:short` (boolean): If `false`, returns the raw `%Req.Response{}` instead of the atom
-        (`:exists` or `:not_found`). (default: `true`).
-      - `:field` (String.t()): When `:short` is `false`, specifies a field to extract from the
-        response body (if any). For HEAD requests, the body is usually empty. (default: `"body"`).
+
+  - `digest`: A string representing the SHA256 digest of the blob (64 hex characters).
+  - `opts`: Optional keyword list of options:
+    - `:debug` (boolean): Enables debug logging (default: `false`).
+    - `:retries` (integer): Number of retry attempts for failed requests (default: `0`).
+    - `:short` (boolean): If `false`, returns the raw `%Req.Response{}` instead of the atom
+      (`:exists` or `:not_found`). (default: `true`).
+    - `:field` (atom() | String.t()): When `:short` is `false`, specifies a field to extract from the
+      response. For HEAD requests, the body is usually empty. (default: `nil`).
 
   ## Returns
-    - `{:ok, :exists | :not_found}`: Indicates whether the blob exists (when `:short` is `true`).
-    - `{:ok, term()}`: The processed response based on `:short` and `:field` options.
-    - `{:error, Error.t()}`: Contains error details if the request fails.
+
+  - `{:ok, :exists | :not_found}`: Indicates whether the blob exists (when `:short` is `true`).
+  - `{:ok, term()}`: The processed response based on `:short` and `:field` options.
+  - `{:error, Error.t()}`: Contains error details if the request fails.
 
   ## Examples
-      iex> AiFlow.Ollama.Blob.check_blob("29fdb92e57cf0827ded04ae6461b5931d01fa595843f55d36f5b275a52087dd2fewfew")
-      {:error, %AiFlow.Ollama.Error{reason: :invalid, message: "Digest must be a valid SHA256 hash (64 hex characters)"}
+
+      iex> AiFlow.Ollama.Blob.check_blob("invalid_digest")
+      {:error, %AiFlow.Ollama.Error{reason: :invalid, message: "Digest must be a valid SHA256 hash (64 hex characters)"}}
 
       iex> AiFlow.Ollama.Blob.check_blob("29fdb92e57cf0827ded04ae6461b5931d01fa595843f55d36f5b275a52087dd2", debug: true)
       {:ok, :exists}
@@ -81,26 +90,27 @@ defmodule AiFlow.Ollama.Blob do
 
       # Get raw response
       iex> AiFlow.Ollama.Blob.check_blob("29fdb92e57cf0827ded04ae6461b5931d01fa595843f55d36f5b275a52087dd2", short: false)
-      {:ok, %Req.Response{status: 200, headers: %{"content-length" => "12345"}, body: "", ...}}
+      {:ok, %Req.Response{status: 200, headers: [{"content-length", "12345"}], body: "", ...}}
+
+      # Get specific field from raw response
+      iex> AiFlow.Ollama.Blob.check_blob("29fdb92e57cf0827ded04ae6461b5931d01fa595843f55d36f5b275a52087dd2", field: :headers)
+      {:ok, [{"content-length", "12345"}]}
+
+      # Get specific field from raw response
+      iex> AiFlow.Ollama.Blob.check_blob("29fdb92e57cf0827ded04ae6461b5931d01fa595843f55d36f5b275a52087dd2", field: {:headers, "content-length"})
+      {:ok, ["102"]}
   """
-  @spec check_blob(String.t(), keyword()) :: {:ok, :exists | :not_found | term()} | {:error, Error.t()}
+  @spec check_blob(digest(), keyword()) :: {:ok, check_result()} | {:error, Error.t()}
   def check_blob(digest, opts \\ []) do
-    if is_binary(digest) and Regex.match?(@sha256_regex, digest) do
+    with :ok <- validate_digest(digest) do
       config = AiFlow.Ollama.get_config()
       debug = Keyword.get(opts, :debug, false)
-      url = Config.build_url(config, "/api/blobs/sha256:#{digest}")
+      field = Keyword.get(opts, :field, :status)
       retries = Keyword.get(opts, :retries, 0)
+      url = Config.build_url(config, "/api/blobs/sha256:#{digest}")
 
-      http_response = HTTPClient.request(:head, url, nil, config.timeout, debug, retries, :check_blob)
-
-      HTTPClient.handle_response(http_response, "body", :check_blob, opts)
-      |> case do
-        {:ok, %Req.Response{status: 200}} -> {:ok, :exists}
-        {:ok, %Req.Response{status: 404}} -> {:ok, :not_found}
-        other -> other
-      end
-    else
-      {:error, Error.invalid("Digest must be a valid SHA256 hash (64 hex characters)")}
+      HTTPClient.request(:head, url, nil, config.timeout, debug, retries, :check_blob)
+      |> HTTPClient.handle_response(field, :check_blob, opts)
     end
   end
 
@@ -111,36 +121,37 @@ defmodule AiFlow.Ollama.Blob do
   and raises an `AiFlow.Ollama.Error` for other errors.
 
   ## Parameters
-    - `digest`: A string representing the SHA256 digest of the blob (64 hex characters).
-    - `opts`: Optional keyword list of options (same as `check_blob/2`).
+
+  - `digest`: A string representing the SHA256 digest of the blob (64 hex characters).
+  - `opts`: Optional keyword list of options (same as `check_blob/2`).
 
   ## Returns
-    - `:exists`: If the blob exists.
-    - `:not_found`: If the blob does not exist (HTTP 404).
-    - `term()`: The processed response based on `:short` and `:field` options.
-    - Raises `AiFlow.Ollama.Error`: For other errors.
+
+  - `:exists`: If the blob exists.
+  - `:not_found`: If the blob does not exist (HTTP 404).
+  - `term()`: The processed response based on `:short` and `:field` options.
+  - Raises `AiFlow.Ollama.Error`: For other errors.
 
   ## Examples
-      iex> AiFlow.Ollama.Blob.check_blob!("a" * 64)
+
+      iex> AiFlow.Ollama.Blob.check_blob!("29fdb92e57cf0827ded04ae6461b5931d01fa595843f55d36f5b275a52087dd2")
       :exists
 
-      iex> AiFlow.Ollama.Blob.check_blob!("b" * 64)
+      iex> AiFlow.Ollama.Blob.check_blob!("29fdb92e57cf0827ded04ae6461b5931d01fa595843f55d36f5b275a52087dd4")
       :not_found
 
-      iex> AiFlow.Ollama.Blob.check_blob!("invalid")
-      ** (AiFlow.Ollama.Error) check_blob failed: invalid digest
+      iex> AiFlow.Ollama.Blob.check_blob!("invalid_digest")
+      ** (AiFlow.Ollama.Error) Digest must be a valid SHA256 hash (64 hex characters)
 
       # Get raw response and raise on error
       iex> AiFlow.Ollama.Blob.check_blob!("29fdb92e57cf0827ded04ae6461b5931d01fa595843f55d36f5b275a52087dd2", short: false)
       %Req.Response{status: 200, ...}
   """
-  @spec check_blob!(String.t(), keyword()) :: :exists | :not_found | term()
+  @spec check_blob!(digest(), keyword()) :: check_result()
   def check_blob!(digest, opts \\ []) do
-    check_blob(digest, opts)
-    |> HTTPClient.handle_result(:check_blob)
-    |> case do
-      %Req.Response{status: 200} -> :exists
-      %Req.Response{status: 404} -> :not_found
+    case check_blob(digest, opts) do
+      {:ok, result} -> result
+      {:error, error} -> error
       other -> other
     end
   end
@@ -149,31 +160,34 @@ defmodule AiFlow.Ollama.Blob do
   Uploads a blob from a file to the Ollama API.
 
   Reads the content of a file and sends a POST request to the Ollama API to create a blob
-  identified by its SHA256 digest. Returns `:created` for HTTP 201 (new blob created) or
-  `:success` for HTTP 200 (blob already exists or other success case), or an error if the
-  file cannot be read or the request fails.
+  identified by its SHA256 digest.
 
   ## Parameters
-    - `digest`: A string representing the SHA256 digest of the blob (64 hex characters).
-    - `file_path`: A string representing the path to the file to upload.
-    - `opts`: Optional keyword list of options:
-      - `:debug` (boolean): Enables debug logging (default: `false`).
-      - `:retries` (integer): Number of retry attempts for failed requests (default: `0`).
-      - `:short` (boolean): If `false`, returns the raw `%Req.Response{}` instead of the atom
-        (`:created` or `:success`). (default: `true`).
-      - `:field` (String.t()): When `:short` is `false`, specifies a field to extract from the
-        response body. (default: `"body"`).
+
+  - `digest`: A string representing the SHA256 digest of the blob (64 hex characters).
+  - `file_path`: A string representing the path to the file to upload.
+  - `opts`: Optional keyword list of options:
+    - `:debug` (boolean): Enables debug logging (default: `false`).
+    - `:retries` (integer): Number of retry attempts for failed requests (default: `0`).
+    - `:short` (boolean): If `false`, returns the raw `%Req.Response{}` instead of the atom
+      (`:created` or `:success`). (default: `true`).
+    - `:field` (atom() | String.t()): When `:short` is `false`, specifies a field to extract from the
+      response body. (default: `:status`).
 
   ## Returns
-    - `{:ok, :created | :success}`: Indicates successful upload (when `:short` is `true`).
-    - `{:ok, term()}`: The processed response based on `:short` and `:field` options.
-    - `{:error, Error.t()}`: Contains error details if the file read or request fails.
+
+  - `{:ok, :created | :success}`: Indicates successful upload (when `:short` is `true`).
+    - `:created` is returned for HTTP 201.
+    - `:success` is returned for HTTP 200.
+  - `{:ok, term()}`: The processed response based on `:short` and `:field` options.
+  - `{:error, Error.t()}`: Contains error details if the file read or request fails.
 
   ## Examples
-      iex> AiFlow.Ollama.Blob.create_blob("a" * 64, "/path/to/file.txt")
-      {:ok, :created}
 
-      iex> AiFlow.Ollama.Blob.create_blob("a" * 64, "/invalid/path")
+      iex> AiFlow.Ollama.Blob.create_blob("29fdb92e57cf0827ded04ae6461b5931d01fa595843f55d36f5b275a52087dd2", "/path/to/file.txt")
+      {:ok, :success} # or {:ok, :created}
+
+      iex> AiFlow.Ollama.Blob.create_blob("29fdb92e57cf0827ded04ae6461b5931d01fa595843f55d36f5b275a52087dd2", "/invalid/path")
       {:error, %AiFlow.Ollama.Error{reason: :enoent}}
 
       iex> AiFlow.Ollama.Blob.create_blob("invalid", "/path/to/file.txt")
@@ -181,38 +195,27 @@ defmodule AiFlow.Ollama.Blob do
 
       # Get raw response
       iex> AiFlow.Ollama.Blob.create_blob("29fdb92e57cf0827ded04ae6461b5931d01fa595843f55d36f5b275a52087dd2", "/path/to/file.bin", short: false)
-      {:ok, %Req.Response{status: 201, headers: %{"content-type" => "application/json"}, body: %{"status" => "success"}, ...}}
+      {:ok, %Req.Response{status: 201, headers: [{"content-type", "application/json"}], body: ~s({"status": "success"}), ...}}
   """
-  @spec create_blob(String.t(), String.t(), keyword()) :: {:ok, :created | :success | term()} | {:error, Error.t()}
+  @spec create_blob(digest(), file_path(), keyword()) :: {:ok, create_result()} | {:error, Error.t()}
   def create_blob(digest, file_path, opts \\ []) do
-    with {:digest, true} <- {:digest, is_binary(digest) and Regex.match?(@sha256_regex, digest)},
-         {:file_path, true} <- {:file_path, is_binary(file_path)},
-         {:file_exists, true} <- {:file_exists, File.exists?(file_path)} do
+    with :ok <- validate_digest(digest),
+         :ok <- validate_file_path(file_path) do
+
       config = AiFlow.Ollama.get_config()
       debug = Keyword.get(opts, :debug, false)
-      url = Config.build_url(config, "/api/blobs/sha256:#{digest}")
+      field = Keyword.get(opts, :field, :status)
       retries = Keyword.get(opts, :retries, 0)
+      url = Config.build_url(config, "/api/blobs/sha256:#{digest}")
 
       case File.read(file_path) do
         {:ok, content} ->
-          http_response = HTTPClient.request(:post, url, content, config.timeout, debug, retries, :create_blob)
+          HTTPClient.request(:post, url, content, config.timeout, debug, retries, :create_blob)
+          |> HTTPClient.handle_response(field, :create_blob, opts)
 
-          HTTPClient.handle_response(http_response, "body", :create_blob, opts)
-          |> case do
-            {:ok, %Req.Response{status: 201}} -> {:ok, :created}
-            {:ok, %Req.Response{status: 200}} -> {:ok, :success}
-            other -> other
-          end
         {:error, reason} ->
           {:error, Error.file(reason)}
       end
-    else
-      {:digest, _} ->
-        {:error, Error.invalid("Digest must be a valid SHA256 hash (64 hex characters)")}
-      {:file_path, _} ->
-        {:error, Error.invalid("File path must be a string")}
-      {:file_exists, _} ->
-        {:error, Error.file(:enoent)}
     end
   end
 
@@ -223,34 +226,58 @@ defmodule AiFlow.Ollama.Blob do
   `AiFlow.Ollama.Error` on failure.
 
   ## Parameters
-    - `digest`: A string representing the SHA256 digest of the blob (64 hex characters).
-    - `file_path`: A string representing the path to the file to upload.
-    - `opts`: Optional keyword list of options (same as `create_blob/3`).
+
+  - `digest`: A string representing the SHA256 digest of the blob (64 hex characters).
+  - `file_path`: A string representing the path to the file to upload.
+  - `opts`: Optional keyword list of options (same as `create_blob/3`).
 
   ## Returns
-    - `:created | :success`: Indicates successful upload.
-    - `term()`: The processed response based on `:short` and `:field` options.
-    - Raises `AiFlow.Ollama.Error`: If the file read or request fails.
+
+  - `:created | :success`: Indicates successful upload.
+  - `term()`: The processed response based on `:short` and `:field` options.
+  - Raises `AiFlow.Ollama.Error`: If the file read or request fails.
 
   ## Examples
-      iex> AiFlow.Ollama.Blob.create_blob!("a" * 64, "/path/to/file.txt")
-      :created
 
-      iex> AiFlow.Ollama.Blob.create_blob!("a" * 64, "/invalid/path")
-      ** (AiFlow.Ollama.Error) create_blob failed: :enoent
+      iex> AiFlow.Ollama.Blob.create_blob!("29fdb92e57cf0827ded04ae6461b5931d01fa595843f55d36f5b275a52087dd2", "/path/to/file.txt")
+      :success # or :created
+
+      iex> AiFlow.Ollama.Blob.create_blob!("29fdb92e57cf0827ded04ae6461b5931d01fa595843f55d36f5b275a52087dd2", "/invalid/path")
+      ** (AiFlow.Ollama.Error) File operation failed: enoent
 
       # Get raw response and raise on error
       iex> AiFlow.Ollama.Blob.create_blob!("29fdb92e57cf0827ded04ae6461b5931d01fa595843f55d36f5b275a52087dd2", "/path/to/file.bin", short: false)
       %Req.Response{status: 201, ...}
   """
-  @spec create_blob!(String.t(), String.t(), keyword()) :: :created | :success | term()
+  @spec create_blob!(digest(), file_path(), keyword()) :: create_result()
   def create_blob!(digest, file_path, opts \\ []) do
-    create_blob(digest, file_path, opts)
-    |> HTTPClient.handle_result(:create_blob)
-    |> case do
-      %Req.Response{status: 201} -> :created
-      %Req.Response{status: 200} -> :success
+    case create_blob(digest, file_path, opts) do
+      {:ok, result} -> result
+      {:error, error} -> error
       other -> other
+    end
+  end
+
+  @spec validate_digest(digest()) :: :ok | {:error, Error.t()}
+  defp validate_digest(digest) do
+    if is_binary(digest) and Regex.match?(@sha256_regex, digest) do
+      :ok
+    else
+      {:error, Error.invalid("Digest must be a valid SHA256 hash (64 hex characters)")}
+    end
+  end
+
+  @spec validate_file_path(file_path()) :: :ok | {:error, Error.t()}
+  defp validate_file_path(file_path) do
+    cond do
+      not is_binary(file_path) ->
+        {:error, Error.invalid("File path must be a string")}
+
+      not File.exists?(file_path) ->
+        {:error, Error.file(:enoent)}
+
+      true ->
+        :ok
     end
   end
 end
