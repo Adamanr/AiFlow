@@ -6,13 +6,6 @@ defmodule AiFlow.Ollama.Embeddings do
   Ollama's embedding models. It supports both the modern `/api/embed` endpoint
   for batch processing and the legacy `/api/embeddings` endpoint for single texts.
 
-  ## Features
-
-  - Automatic model pulling when a model is not found
-  - Support for single and batch embedding generation
-  - Both safe (`{:ok, result} | {:error, reason}`) and raising (`!`) variants
-  - Debug mode for inspecting raw API responses
-
   ## Examples
 
   Generate embeddings for a single text:
@@ -78,7 +71,7 @@ defmodule AiFlow.Ollama.Embeddings do
     - `:model` - The embedding model to use (default: `"llama3.1"`)
     - `:debug` - If `true`, logs debug information (default: `false`)
     - `:short` - If `false`, returns the full API response (default: `true`)
-    - `:field` - The field name to extract from response (default: `"embeddings"`)
+    - `:field` - The field name to extract from response (default: `{:body, "embeddings"}`)
 
   ## Returns
 
@@ -152,7 +145,7 @@ defmodule AiFlow.Ollama.Embeddings do
   ## Returns
 
   - `list()` - List of embeddings on success
-  - Raises `AiFlow.Ollama.Error` on failure
+  - `Error.t()` - Error case with detailed error information
 
   ## Examples
 
@@ -183,7 +176,7 @@ defmodule AiFlow.Ollama.Embeddings do
         field: "total_duration"
       )
   """
-  @spec generate_embeddings!(String.t() | [String.t()], keyword()) :: list()
+  @spec generate_embeddings!(String.t() | [String.t()], keyword()) :: list() | Error.t()
   def generate_embeddings!(input, opts \\ []) do
     case generate_embeddings(input, opts) do
       {:ok, result} -> result
@@ -252,7 +245,7 @@ defmodule AiFlow.Ollama.Embeddings do
   end
 
   @doc """
-  Generates embeddings (legacy), raising on error.
+  Generates embeddings (legacy).
 
   Same as `generate_embeddings_legacy/2` but raises an exception instead of returning
   `{:error, reason}`. Useful when you expect the operation to succeed and want
@@ -265,12 +258,12 @@ defmodule AiFlow.Ollama.Embeddings do
     - `:model` - The embedding model to use (default: `"llama3.1"`)
     - `:debug` - If `true`, logs debug information (default: `false`)
     - `:short` - If `false`, returns the full API response (default: `true`)
-    - `:field` - The field name to extract from response (default: `"embedding"`)
+    - `:field` - The field name to extract from response (default: `{:body, "embedding"}`)
 
   ## Returns
 
   - `list()` - List containing one embedding on success
-  - Raises `AiFlow.Ollama.Error` on failure
+  - `Error.t()` - Error case with detailed error information
 
   ## Examples
 
@@ -301,7 +294,7 @@ defmodule AiFlow.Ollama.Embeddings do
         short: false
       )
   """
-  @spec generate_embeddings_legacy!(String.t(), keyword()) :: list()
+  @spec generate_embeddings_legacy!(String.t(), keyword()) :: list() | Error.t()
   def generate_embeddings_legacy!(prompt, opts \\ []) do
     case generate_embeddings_legacy(prompt, opts) do
       {:ok, result} -> result

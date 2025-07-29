@@ -64,60 +64,57 @@ defmodule AiFlow.Ollama.TextGeneration do
 
   ## Returns
 
-  - `{:ok, String.t()}`: The generated text completion when `:short` is `true` (default).
-  - `{:ok, map()}`: The full API response map when `:short` is `false`.
   - `{:ok, term()}`: The value of the specified `:field` from the API response when `:short` is `true`.
   - `{:error, Error.t()}`: An error struct if the request fails (network error, API error, etc.).
 
   ## Examples
+    # Generate a completion for a prompt
+    {:ok, response_text} = AiFlow.Ollama.TextGeneration.query("Explain quantum computing in simple terms.")
+    # response_text is a string like "Quantum computing is a type of computing that uses..."
 
-      # Generate a completion for a prompt
-      {:ok, response_text} = AiFlow.Ollama.TextGeneration.query("Explain quantum computing in simple terms.")
-      # response_text is a string like "Quantum computing is a type of computing that uses..."
+    # Use a specific model
+    {:ok, response_text} = AiFlow.Ollama.TextGeneration.query("Write a poem", model: "mistral")
 
-      # Use a specific model
-      {:ok, response_text} = AiFlow.Ollama.TextGeneration.query("Write a poem", model: "mistral")
+    # Get the full API response including metadata
+    {:ok, full_api_response} = AiFlow.Ollama.TextGeneration.query("Hello!", short: false)
+    # full_api_response is a map like:
+    # %{
+    #   "model" => "llama3.1",
+    #   "created_at" => "2023-08-04T19:22:45.499127Z",
+    #   "response" => "Hello! How can I assist you today?",
+    #   "done" => true,
+    #   "context" => [1, 2, 3, ...], # (if keep_alive or context was used)
+    #   "total_duration" => 1234567890,
+    #   "load_duration" => 543210987,
+    #   ...
+    # }
 
-      # Get the full API response including metadata
-      {:ok, full_api_response} = AiFlow.Ollama.TextGeneration.query("Hello!", short: false)
-      # full_api_response is a map like:
-      # %{
-      #   "model" => "llama3.1",
-      #   "created_at" => "2023-08-04T19:22:45.499127Z",
-      #   "response" => "Hello! How can I assist you today?",
-      #   "done" => true,
-      #   "context" => [1, 2, 3, ...], # (if keep_alive or context was used)
-      #   "total_duration" => 1234567890,
-      #   "load_duration" => 543210987,
-      #   ...
-      # }
+    # Extract a specific field from the API response (e.g., the model name used)
+    {:ok, model_used} = AiFlow.Ollama.TextGeneration.query("Hi", short: false, field: "model")
+    # model_used is "llama3.1"
 
-      # Extract a specific field from the API response (e.g., the model name used)
-      {:ok, model_used} = AiFlow.Ollama.TextGeneration.query("Hi", short: false, field: "model")
-      # model_used is "llama3.1"
+    # Extract a different field from the main response content when short=true (less common for /api/generate)
+    # This would depend on the structure of the "response" field if it were JSON, which it usually isn't for /api/generate.
+    # More commonly, you'd use short: false, field: "model" as above.
 
-      # Extract a different field from the main response content when short=true (less common for /api/generate)
-      # This would depend on the structure of the "response" field if it were JSON, which it usually isn't for /api/generate.
-      # More commonly, you'd use short: false, field: "model" as above.
+    # Enable debug logging to see the raw request and response
+    {:ok, _} = AiFlow.Ollama.TextGeneration.query("Debug me", debug: true)
+    # This will log details like:
+    # [debug] Sending request to http://localhost:11434/api/generate
+    # [debug] Request body: %{...}
+    # [debug] Ollama query response: Status=200, Body=%{...}
 
-      # Enable debug logging to see the raw request and response
-      {:ok, _} = AiFlow.Ollama.TextGeneration.query("Debug me", debug: true)
-      # This will log details like:
-      # [debug] Sending request to http://localhost:11434/api/generate
-      # [debug] Request body: %{...}
-      # [debug] Ollama query response: Status=200, Body=%{...}
-
-      # Handle a potential model not found error (will trigger auto-pull if configured in HTTPClient)
-      case AiFlow.Ollama.TextGeneration.query("Hello", model: "non-existent-model") do
-        {:ok, response} ->
-          IO.puts("Response: \#{response}")
-        {:error, %AiFlow.Ollama.Error{type: :http, status: 404}} ->
-          IO.puts("Model not found, check if auto-pull is working or pull manually.")
-        {:error, error} ->
-          IO.puts("An error occurred: \#{inspect(error)}")
-      end
+    # Handle a potential model not found error (will trigger auto-pull if configured in HTTPClient)
+    case AiFlow.Ollama.TextGeneration.query("Hello", model: "non-existent-model") do
+      {:ok, response} ->
+        IO.puts("Response: \#{response}")
+      {:error, %AiFlow.Ollama.Error{type: :http, status: 404}} ->
+        IO.puts("Model not found, check if auto-pull is working or pull manually.")
+      {:error, error} ->
+        IO.puts("An error occurred: \#{inspect(error)}")
+    end
   """
-  @spec query(String.t(), keyword()) :: {:ok, String.t() | term()} | {:error, Error.t()}
+  @spec query(String.t(), keyword()) :: {:ok, term()} | {:error, Error.t()}
   def query(prompt, opts \\ []) do
     config = AiFlow.Ollama.get_config()
     debug = Keyword.get(opts, :debug, false)
@@ -147,22 +144,22 @@ defmodule AiFlow.Ollama.TextGeneration do
   ## Returns
 
   - `String.t()` or `term()`: The generated text completion or processed response based on `:short`/`:field`.
-  - Raises `AiFlow.Ollama.Error` (or `RuntimeError`) if the request fails.
+  - `Error.t()`: An error struct if the request fails.
 
   ## Examples
 
-      # Successful generation
-      response_text = AiFlow.Ollama.TextGeneration.query!("What are the benefits of using Elixir?")
-      IO.puts(response_text)
+    # Successful generation
+    AiFlow.Ollama.TextGeneration.query!("What are the benefits of using Elixir?")
+    ["Elixir is a modern, dynamic language that runs on the Erlang VM (BEAM), and it has several benefits when compared to other programming languages. Here are some of the key advantages of using Elixir:",..
 
-      # Raise on API error
-      # response_text = AiFlow.Ollama.TextGeneration.query!("...", model: "invalid-model")
-      # ** (AiFlow.Ollama.Error) ...
+    # Raise on API error
+    # response_text = AiFlow.Ollama.TextGeneration.query!("...", model: "invalid-model")
+    nil
 
-      # Get full response and raise on error
-      full_response = AiFlow.Ollama.TextGeneration.query!("Hello!", short: false)
+    # Get full response and raise on error
+    full_response = AiFlow.Ollama.TextGeneration.query!("Hello!", short: false)
   """
-  @spec query!(String.t(), keyword()) :: String.t() | term()
+  @spec query!(String.t(), keyword()) :: term() | Error.t()
   def query!(prompt, opts \\ []) do
     case query(prompt, opts) do
       {:ok, result} -> result

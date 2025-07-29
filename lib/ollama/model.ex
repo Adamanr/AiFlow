@@ -7,20 +7,6 @@ defmodule AiFlow.Ollama.Model do
   It leverages the shared `AiFlow.Ollama.HTTPClient` for consistent HTTP handling,
   error management, and support for options like `:short`, `:field`, `:debug`, and `:retries`.
 
-  ## Features
-
-  - List local and running models.
-  - Show detailed information about a specific model.
-  - Pull models from remote registries.
-  - Push models to remote registries.
-  - Copy models locally.
-  - Delete models.
-  - Create new models from Modelfile.
-  - Load a model into memory.
-  - Support for standard (`{:ok, result} | {:error, reason}`) and raising (`!`) variants.
-  - Configurable response formatting with `:short` and `:field` options (via `HTTPClient`).
-  - Debug logging and retry mechanisms.
-
   ## Examples
 
       # List all local models
@@ -68,18 +54,72 @@ defmodule AiFlow.Ollama.Model do
   ## Examples
 
       # Get only model names (default behavior with :short=true)
-      {:ok, model_names} = AiFlow.Ollama.list_models()
-      # model_names is ["llama3.1:latest", "mistral:latest", ...]
+      AiFlow.Ollama.list_models()
+      {:ok,
+        [
+          %{
+            ...,
+            "model" => "custom:latest",
+            "name" => "custom1:latest",
+            "size" => 669615493
+            ...
+          },
+          %{
+            ...,
+            "model" => "mxbai-embed-large:latest",
+            "name" => "mxbai-embed-large:latest",
+            "size" => 669615493
+          },
+        ]}
 
       # Get only model names explicitly
       {:ok, model_names} = AiFlow.Ollama.list_models(short: true)
-
-      # Get full model details
-      {:ok, model_details} = AiFlow.Ollama.list_models(short: false)
-      # model_details is [%{"name" => "llama3.1:latest", "size" => ..., ...}, ...]
+      {:ok,
+        %Req.Response{
+          status: 200,
+          headers: %{...},
+          body: %{
+            "models" =>  [
+              %{
+                ...,
+                "model" => "custom:latest",
+                "name" => "custom1:latest",
+                "size" => 669615493
+                ...
+              },
+              %{
+                ...,
+                "model" => "mxbai-embed-large:latest",
+                "name" => "mxbai-embed-large:latest",
+                "size" => 669615493
+              },
+            ]
+          },
+          ...
+        }}
 
       # Enable debug logging
-      {:ok, _} = AiFlow.Ollama.list_models(debug: true)
+      AiFlow.Ollama.list_models(debug: true)
+      22:31:17.759 [debug] Ollama :get list_models request: URL=http://127.0.0.1:11434/api/tags, Body=nil
+      22:31:17.786 [debug] Ollama show_model response: Status=200, Body=%{"models" => [%{"details" => %{"families" => ["llama"], "family" => "llama", "format" => "gguf", "parameter_size" => "8.0B", "parent_model" => "", "quantization_level" => "Q4_K_M"}
+      {:ok,
+      [
+        %{
+          ...,
+          "model" => "custom:latest",
+          "name" => "custom1:latest",
+          "size" => 669615493,
+          ...
+        },
+        %{
+          ...,
+          "model" => "mxbai-embed-large:latest",
+          "name" => "mxbai-embed-large:latest",
+          "size" => 669615493,
+          ...
+        },
+      ]}
+
   """
   @spec list_models(keyword()) :: {:ok, list(String.t()) | list(map())} | {:error, Error.t()}
   def list_models(opts \\ []) do
@@ -105,7 +145,7 @@ defmodule AiFlow.Ollama.Model do
   ## Returns
 
   - `list()` or `term()`: The list of models or processed response based on options.
-  - Raises `AiFlow.Ollama.Error` on failure.
+  - `Error.t()`: An error struct if the request fails.
 
   ## Examples
 
@@ -145,17 +185,52 @@ defmodule AiFlow.Ollama.Model do
   ## Examples
 
       # Get full model details
-      {:ok, model_info} = AiFlow.Ollama.Model.show_model("llama3.1")
-      # model_info is %{"license" => ..., "modelfile" => ..., "parameters" => ..., "template" => ...}
+      AiFlow.Ollama.Model.show_model("llama3.1")
+      {:ok,
+        %{
+          "families" => ["llama"],
+          "family" => "llama",
+          "format" => "gguf",
+          "parameter_size" => "8.0B",
+          "parent_model" => "",
+          "quantization_level" => "Q4_K_M"
+        }}
 
       # Enable debug logging
       {:ok, _} = AiFlow.Ollama.Model.show_model("llama3.1", debug: true)
+      22:33:22.461 [debug] Ollama :post show_model request: URL=http://127.0.0.1:11434/api/show, Body=%{name: "llama3.1"}
+      22:33:22.506 [debug] Ollama show_model response: Status=200, Body=%{"capabilities" => ["completion", "tools"], "details" => %{"families" => ["llama"], "family" => "llama", "format" => "gguf", "parameter_size" => "8.0B", "parent_model" => "", "quantization_level" => "Q4_K_M"}, ...
+      {:ok,
+        %{
+          "families" => ["llama"],
+          "family" => "llama",
+          "format" => "gguf",
+          "parameter_size" => "8.0B",
+          "parent_model" => "",
+          "quantization_level" => "Q4_K_M"
+        }}
 
       # Get raw HTTP response
-      {:ok, %Req.Response{status: 200, body: %{...}}} = AiFlow.Ollama.Model.show_model("llama3.1", short: false)
+      AiFlow.Ollama.Model.show_model("llama3.1", short: false)
+      {:ok,
+        %Req.Response{
+          status: 200,
+          headers: %{...},
+          body: %{
+            "capabilities" => ["completion", "tools"],
+            "details" => %{
+              "families" => ["llama"],
+              "family" => "llama",
+              "format" => "gguf",
+              "parameter_size" => "8.0B",
+              "parent_model" => "",
+              "quantization_level" => "Q4_K_M"
+            },
+          ...}}
 
       # Extract a specific field from the model info (e.g., license)
-      {:ok, license_text} = AiFlow.Ollama.Model.show_model("llama3.1", short: true, field: :body)
+      {:ok, license_text} = AiFlow.Ollama.Model.show_model("llama3.1", short: true, field: {:body, "capabilities"})
+      {:ok, ["completion", "tools"]}
   """
   @spec show_model(String.t(), keyword()) :: {:ok, map() | term()} | {:error, Error.t()}
   def show_model(name, opts \\ []) do
@@ -188,14 +263,17 @@ defmodule AiFlow.Ollama.Model do
   ## Returns
 
   - `map()` or `term()`: The model information map or processed response based on options.
-  - Raises `AiFlow.Ollama.Error` on failure.
+  - `Error.t()`: An error struct if the request fails.
 
   ## Examples
 
-      model_info = AiFlow.Ollama.Model.show_model!("llama3.1")
-      license_text = AiFlow.Ollama.Model.show_model!("llama3.1", short: true, field: "license")
+      AiFlow.Ollama.Model.show_model!("llama3.1", short: true, field: "license")
+      ["LLAMA 3.1 COMMUNITY LICENSE AGREEMENT",
+       "Llama 3.1 Version Release Date: July 23, 2024",
+       "“Agreement” means the terms and conditions for use, reproduction, distribution and modification of the",
+       "Llama Materials set forth herein.",
   """
-  @spec show_model!(String.t(), keyword()) :: map() | term()
+  @spec show_model!(String.t(), keyword()) :: map() | term() | Error.t()
   def show_model!(name, opts \\ []) do
     case show_model(name, opts) do
       {:ok, result} -> result
@@ -225,19 +303,34 @@ defmodule AiFlow.Ollama.Model do
 
   ## Examples
       # Pull a model
-      {:ok, :success} = AiFlow.Ollama.Model.pull_model("llama3.1")
+      AiFlow.Ollama.Model.pull_model("llama3.1")
+      📥 Pulling model: llama3.1
+      {:ok, 200}
+
+      AiFlow.Ollama.Model.pull_model("llama3.1", display: false)
+      {:ok, 200}
 
       # Pull with debug logging
       {:ok, _} = AiFlow.Ollama.Model.pull_model("llama3.1", debug: true)
-
-      # Pull with progress display
-      {:ok, _} = AiFlow.Ollama.Model.pull_model("llama3.1", display: true)
+      iex(6)> AiFlow.Ollama.Model.pull_model("llama3.1", debug: true)
+      📥 Pulling model: llama3.1
+      23:06:57.489 [debug] Ollama :post pull_model request: URL=http://127.0.0.1:11434/api/pull, Body=%{name: "llama3.1", stream: true}
+      23:06:58.110 [debug] Ollama generate_embeddings_legacy response: Status=200, Body="{\"status\":\"pulling manifest\"}\n{\"status\":\"pulling 667b0c1932bc\",\"digest\":\"sha256:667b0c1932bc6ffc593ed1d03f895bf2dc8dc6df21db3042284...
+      {:ok, 200}
 
       # Show the entire response
-      {:ok, _} = AiFlow.Ollama.Model.pull_model("llama3.1", short: false)
+      AiFlow.Ollama.Model.pull_model("llama3.1", short: false)
+      {:ok,
+        %Req.Response{
+          status: 200,
+          headers: %{...},
+          body: "{\"status\":\"pulling manifest\"}\n{\"status\":\"pulling...",
+          ...
+        }}
 
       # Show a specific response field
-      {:ok, _} = AiFlow.Ollama.Model.pull_model("llama3.1", field: :body)
+      AiFlow.Ollama.Model.pull_model("llama3.1", field: :body)
+      {:ok, "{\"status\":\"pulling manifest\"}\n{\"status\":\"pulling..."}
   """
   @spec pull_model(String.t(), keyword()) :: {:ok, term()} | {:error, Error.t()}
   def pull_model(name, opts \\ []) do
@@ -279,13 +372,13 @@ defmodule AiFlow.Ollama.Model do
   ## Returns
 
   - `term()`: The result of the pull operation.
-  - Raises `AiFlow.Ollama.Error` on failure.
+  - `Error.t()`: An error struct if the request fails or is interrupted.
 
   ## Examples
 
       AiFlow.Ollama.Model.pull_model!("llama3.1")
   """
-  @spec pull_model!(String.t(), keyword()) :: term()
+  @spec pull_model!(String.t(), keyword()) :: term() | Error.t()
   def pull_model!(name, opts \\ []) do
      case pull_model(name, opts) do
       {:ok, result} -> result
@@ -307,27 +400,32 @@ defmodule AiFlow.Ollama.Model do
     - `:retries` (integer): Number of retry attempts for failed requests (default: `0`).
     - `:stream` (boolean): Whether to request a streaming response (default: `true`).
     - `:short` (boolean): If `false`, attempts to return the raw `%Req.Response{}`. (default: `true`).
-    - `:field` (String.t()): When `:short` is `true`, specifies the field to extract. (default: `"status"`).
+    - `:field` (String.t()): When `:short` is `true`, specifies the field to extract. (default: `:body`).
 
   ## Returns
 
-  - `{:ok, :success | term()}`: Indicates successful push or contains status information.
+  - `{:ok, term()}`: Indicates successful push or contains status information.
   - `{:error, Error.t()}`: An error struct if the request fails.
 
   ## Examples
 
-      # Push a model
-      {:ok, :success} = AiFlow.Ollama.Model.push_model("my-model")
-
-      # Push with debug logging
-      {:ok, _} = AiFlow.Ollama.Model.push_model("my-model", debug: true)
+      # Push a wrong model
+      AiFlow.Ollama.Model.push_model("my-model")
+      {:ok,
+        [
+          %{"status" => "retrieving manifest"},
+          %{"status" => "couldn't retrieve manifest"},
+          %{
+            "error" => "open .ollama/models/manifests/registry.ollama.ai/library/my-model/latest: no such file or directory"
+          }
+        ]}
   """
   @spec push_model(String.t(), keyword()) :: {:ok, :success | term()} | {:error, Error.t()}
   def push_model(name, opts \\ []) do
     if is_binary(name) and name != "" do
       config = AiFlow.Ollama.get_config()
       debug = Keyword.get(opts, :debug, false)
-      field = Keyword.get(opts, :field, :status)
+      field = Keyword.get(opts, :field, :body)
       retries = Keyword.get(opts, :retries, 0)
       url = Config.build_url(config, "/api/push")
 
@@ -358,14 +456,23 @@ defmodule AiFlow.Ollama.Model do
 
   ## Returns
 
-  - `:success | term()`: Indicates successful push or contains status information.
-  - Raises `AiFlow.Ollama.Error` on failure.
+  - `term()`: Indicates successful push or contains status information.
+  - `Error.t()`: An error struct if the request fails or is interrupted.
 
   ## Examples
 
-      AiFlow.Ollama.Model.push_model!("my-model")
+    # Push a wrong model
+    AiFlow.Ollama.Model.push_model!("my-model")
+    [
+      %{"status" => "retrieving manifest"},
+      %{"status" => "couldn't retrieve manifest"},
+      %{
+        "error" => "open .ollama/models/manifests/registry.ollama.ai/library/my-model/latest: no such file or directory"
+      }
+    ]
+
   """
-  @spec push_model!(String.t(), keyword()) :: :success | term()
+  @spec push_model!(String.t(), keyword()) :: term() | Error.t()
   def push_model!(name, opts \\ []) do
     case push_model(name, opts) do
       {:ok, result} -> result
@@ -396,17 +503,63 @@ defmodule AiFlow.Ollama.Model do
 
   ## Examples
 
-      # Get the full list of running models
-      {:ok, running_models} = AiFlow.Ollama.Model.list_running_models()
+      # Get the empty list of running models
+      AiFlow.Ollama.Model.list_running_models()
+      {:ok, []}
+
+      # Get the list of running models
+      AiFlow.Ollama.load_model("llama3.1")
+      AiFlow.Ollama.Model.list_running_models()
+      {:ok,
+        [
+          %{
+            "details" => %{...},
+            "model" => "llama3.1:latest",
+            "name" => "llama3.1:latest",
+            "size" => 6450833408,
+            ...
+          }
+        ]}
 
       # Enable debug logging
-      {:ok, _} = AiFlow.Ollama.Model.list_running_models(debug: true)
+      AiFlow.Ollama.Model.list_running_models(debug: true)
+      23:24:15.850 [debug] Ollama :get list_running_models request: URL=http://127.0.0.1:11434/api/ps, Body=nil
+      23:24:15.850 [debug] Ollama list_running_models response: Status=200, Body=%{"models" => [%{"details" => %{"families" => ["llama"], "family" => "llama", "format" => "gguf", "parameter_size" => "8.0B", "parent_model" => "", "qu...
+      {:ok,
+        [
+          %{
+            "details" => %{...},
+            "model" => "llama3.1:latest",
+            "name" => "llama3.1:latest",
+            "size" => 6450833408,
+            ...
+          }
+        ]}
 
       # Show the entire response
-      {:ok, _} = AiFlow.Ollama.Model.list_running_models(short: false)
+      AiFlow.Ollama.Model.list_running_models(short: false)
+      {:ok,
+        %Req.Response{
+          status: 200,
+          headers: %{...},
+          body: %{
+            "models" => [
+              %{
+                "details" => %{....},
+                "model" => "llama3.1:latest",
+                "name" => "llama3.1:latest",
+                "size" => 6450833408,
+                ...
+              }
+            ]
+          },
+          ...
+        }}
+
 
       # Show a specific response field
-      {:ok, _} = AiFlow.Ollama.Model.list_running_models(field: :headers)
+      AiFlow.Ollama.Model.list_running_models(field: :status)
+      {:ok, 200}
   """
   @spec list_running_models(keyword()) :: {:ok, list() | term()} | {:error, Error.t()}
   def list_running_models(opts \\ []) do
@@ -432,13 +585,13 @@ defmodule AiFlow.Ollama.Model do
   ## Returns
 
   - `list()` or `term()`: The list of running models or processed response based on options.
-  - Raises `AiFlow.Ollama.Error` on failure.
+  - `Error.t()`: An error struct if the request fails.
 
   ## Examples
 
       running_models = AiFlow.Ollama.Model.list_running_models!()
   """
-  @spec list_running_models!(keyword()) :: list() | term()
+  @spec list_running_models!(keyword()) :: list() | term() | Error.t()
   def list_running_models!(opts \\ []) do
     case list_running_models(opts) do
       {:ok, result} -> result
@@ -464,18 +617,38 @@ defmodule AiFlow.Ollama.Model do
 
   ## Returns
 
-  - `{:ok, :success | term()}`: Indicates successful load or contains status information.
+  - `{:ok, term()}`: Indicates successful load or contains status information.
   - `{:error, Error.t()}`: An error struct if the request fails.
 
   ## Examples
 
-      # Load a model
-      {:ok, :success} = AiFlow.Ollama.Model.load_model("llama3.1")
+    # Load a model
+    AiFlow.Ollama.Model.load_model("llama3.1")
+    # => {:ok, 200}
 
-      # Load with debug logging
-      {:ok, _} = AiFlow.Ollama.Model.load_model("llama3.1", debug: true)
+    # Load with debug logging
+    AiFlow.Ollama.Model.load_model("llama3.1", debug: true)
+    23:28:14.329 [debug] Ollama :post load_model request: URL=http://127.0.0.1:11434/api/generate, Body=%{stream: false, prompt: "", model: "llama3.1"}
+    23:28:14.360 [debug] Ollama load_model response: Status=200, Body=%{"created_at" => "2025-07-29T18:28:14.360732866Z", "done" => true, "done_reason" => "load", "model" => "llama3.1", "response" => ""}
+    # => {:ok, 200}
+
+    AiFlow.Ollama.Model.load_model("llama3.1", short: false)
+    {:ok,
+      %Req.Response{
+        status: 200,
+        headers: %{...},
+        body: %{
+          "model" => "llama3.1",
+          ...
+        },
+        ...
+      }}
+
+    # Show a specific response field
+    AiFlow.Ollama.Model.load_model("llama3.1", field: :status)
+    # => {:ok, 200}
   """
-  @spec load_model(String.t(), keyword()) :: {:ok, :success | term()} | {:error, Error.t()}
+  @spec load_model(String.t(), keyword()) :: {:ok, term()} | {:error, Error.t()}
   def load_model(model, opts \\ []) do
     if is_binary(model) and model != "" do
       config = AiFlow.Ollama.get_config()
@@ -504,14 +677,14 @@ defmodule AiFlow.Ollama.Model do
 
   ## Returns
 
-  - `:success | term()`: Indicates successful load or contains status information.
-  - Raises `AiFlow.Ollama.Error` on failure.
+  - `term()`: Indicates successful load or contains status information.
+  - `Error.t()`: An error struct if the request fails.
 
   ## Examples
-
       AiFlow.Ollama.Model.load_model!("llama3.1")
+      200
   """
-  @spec load_model!(String.t(), keyword()) :: :success | term()
+  @spec load_model!(String.t(), keyword()) :: term() | Error.t()
   def load_model!(model, opts \\ []) do
     case load_model(model, opts) do
       {:ok, result} -> result
@@ -541,19 +714,46 @@ defmodule AiFlow.Ollama.Model do
 
   ## Returns
 
-  - `{:ok, :success | term()}`: Indicates successful creation or contains status information.
+  - `{:ok, term()}`: Indicates successful creation or contains status information.
   - `{:error, Error.t()}`: An error struct if the request fails.
 
   ## Examples
 
       # Create a model with base model and system message
-      {:ok, :success} = AiFlow.Ollama.Model.create_model("my-custom-model", "llama3.1", "You are a helpful assistant.")
+      AiFlow.Ollama.Model.create_model("my-custom-model", "llama3.1", "You are a helpful assistant.")
+      {:ok, 200}
 
-      # Create a model with a full Modelfile
-      modelfile_content = "FROM llama3.1\\nSYSTEM You are a poet.\\nPARAMETER temperature 0.7"
-      {:ok, :success} = AiFlow.Ollama.Model.create_model("my-poet-model", "", "", modelfile: modelfile_content)
+      # Get debug logs
+      AiFlow.Ollama.Model.create_model("my-custom-model", "llama3.1", "You are a helpful assistant.", debug: true)
+      23:34:53.070 [debug] Ollama :post create_model request: URL=http://127.0.0.1:11434/api/create, Body=%{name: "my-custom-model", system: "You are a helpful assistant.", from: "llama3.1"}
+      23:34:53.096 [debug] Ollama create_model response: Status=200, Body="{\"status\":\"using existing...
+      {:ok, 200}
+
+      # Get full response
+      AiFlow.Ollama.Model.create_model("my-custom-model", "llama3.1", "You are a helpful assistant.", short: false)
+      {:ok,
+        %Req.Response{
+          status: 200,
+          headers: %{...},
+          body: "{\"status\":\"using existing layer...",
+          ...
+        }}
+
+      # Get specificate field
+      AiFlow.Ollama.Model.create_model("my-custom-model", "llama3.1", "You are a helpful assistant.", short: false)
+      {:ok,
+        %Req.Response{
+          status: 200,
+          headers: %{...},
+          body: "{\"status\":\"using existing layer...",
+          ...
+        }}
+
+      # Show a specific response field
+      AiFlow.Ollama.Model.create_model("my-custom-model", "llama3.1", "You are a helpful assistant.", field: :status)
+      {:ok, 200}
   """
-  @spec create_model(String.t(), String.t(), String.t(), keyword()) :: {:ok, :success | term()} | {:error, Error.t()}
+  @spec create_model(String.t(), String.t(), String.t(), keyword()) :: {:ok, term()} | {:error, Error.t()}
   def create_model(name, model, system, opts \\ []) do
     if is_binary(name) and name != "" do
       config = AiFlow.Ollama.get_config()
@@ -585,14 +785,14 @@ defmodule AiFlow.Ollama.Model do
 
   ## Returns
 
-  - `:success | term()`: Indicates successful creation or contains status information.
-  - Raises `AiFlow.Ollama.Error` on failure.
+  - `term()`: Indicates successful creation or contains status information.
+  - `Error.t()`: An error struct if the request fails.
 
   ## Examples
 
       AiFlow.Ollama.Model.create_model!("my-custom-model", "llama3.1", "You are a helpful assistant.")
   """
-  @spec create_model!(String.t(), String.t(), String.t(), keyword()) :: :success | term()
+  @spec create_model!(String.t(), String.t(), String.t(), keyword()) :: term() | Error.t()
   def create_model!(name, model, system, opts \\ []) do
     case create_model(name, model, system, opts) do
       {:ok, result} -> result
@@ -620,8 +820,7 @@ defmodule AiFlow.Ollama.Model do
 
   ## Returns
 
-  - `{:ok, :success}`: Indicates successful copy.
-  - `{:ok, %Req.Response{}}`: The raw response if `short: false`.
+  - `{:ok, term()}`: Indicates successful copy.
   - `{:error, Error.t()}`: An error struct if the request fails.
 
   ## Examples
@@ -635,7 +834,7 @@ defmodule AiFlow.Ollama.Model do
       # Get raw response (less common for copy)
       {:ok, %Req.Response{status: 200}} = AiFlow.Ollama.Model.copy_model("llama3.1", "llama3.1-test2", short: false)
   """
-  @spec copy_model(String.t(), String.t(), keyword()) :: {:ok, :success | Req.Response.t()} | {:error, Error.t()}
+  @spec copy_model(String.t(), String.t(), keyword()) :: {:ok, term()} | {:error, Error.t()}
   def copy_model(source, destination, opts \\ []) do
     if is_binary(source) and source != "" and is_binary(destination) and destination != "" do
       config = AiFlow.Ollama.get_config()
@@ -666,15 +865,14 @@ defmodule AiFlow.Ollama.Model do
 
   ## Returns
 
-  - `:success`: Indicates successful copy.
-  - `%Req.Response{}`: The raw response if `short: false`.
-  - Raises `AiFlow.Ollama.Error` on failure.
+  - `term()`: Indicates successful copy.
+  - `Error.t()`: An error struct if the request fails.
 
   ## Examples
 
       AiFlow.Ollama.Model.copy_model!("llama3.1", "llama3.1-backup")
   """
-  @spec copy_model!(String.t(), String.t(), keyword()) :: :success | Req.Response.t()
+  @spec copy_model!(String.t(), String.t(), keyword()) :: term() | Error.t()
   def copy_model!(source, destination, opts \\ []) do
     case copy_model(source, destination, opts) do
       {:ok, result} -> result
@@ -699,7 +897,6 @@ defmodule AiFlow.Ollama.Model do
 
   ## Returns
 
-  - `{:ok, :success}`: Indicates successful deletion.
   - `{:ok, term()}`: The processed response based on `:short` and `:field` options.
   - `{:error, Error.t()}`: An error struct if the request fails.
 
@@ -711,7 +908,7 @@ defmodule AiFlow.Ollama.Model do
       # Delete with debug logging
       {:ok, _} = AiFlow.Ollama.Model.delete_model("temp-model", debug: true)
   """
-  @spec delete_model(String.t(), keyword()) :: {:ok, :success | term()} | {:error, Error.t()}
+  @spec delete_model(String.t(), keyword()) :: {:ok, term()} | {:error, Error.t()}
   def delete_model(name, opts \\ []) do
     if is_binary(name) and name != "" do
       config = AiFlow.Ollama.get_config()
@@ -741,14 +938,14 @@ defmodule AiFlow.Ollama.Model do
 
   ## Returns
 
-  - `:success | term()`: Indicates successful deletion or contains status information.
-  - Raises `AiFlow.Ollama.Error` on failure.
+  - `term()`: Indicates successful deletion or contains status information.
+  - `Error.t()`: An error struct if the request fails.
 
   ## Examples
 
       AiFlow.Ollama.Model.delete_model!("temp-model")
   """
-  @spec delete_model!(String.t(), keyword()) :: :success | term()
+  @spec delete_model!(String.t(), keyword()) :: term() | Error.t()
   def delete_model!(name, opts \\ []) do
     case delete_model(name, opts) do
       {:ok, result} -> result

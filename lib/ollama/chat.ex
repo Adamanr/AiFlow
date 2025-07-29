@@ -72,7 +72,7 @@ defmodule AiFlow.Ollama.Chat do
   ## Returns
 
   - `{:ok, response}`: The formatted response based on `:short` and `:field` options.
-  - `{:error, %Error{}}`: An error with a reason (e.g., API failure, invalid response format).
+  - `{:error, Error.t()}`: An error with a reason (e.g., API failure, invalid response format).
 
   ## Examples
 
@@ -90,10 +90,6 @@ defmodule AiFlow.Ollama.Chat do
       # Get the full API response
       iex> AiFlow.Ollama.Chat.chat("Hello!", "chat123", "usr1", short: false)
       {:ok, %{"model" => "llama3.1", "message" => %{"role" => "assistant", "content" => "Hi there!"}, "done" => true, "total_duration" => 123456789}}
-
-      # Extract a specific top-level field from the full API response
-      iex> AiFlow.Ollama.Chat.chat("Hello!", "chat123", "usr1", short: false, field: "model")
-      {:ok, "llama3.1"}
 
       # Extract a specific field from the message object (default short: true)
       iex> AiFlow.Ollama.Chat.chat("Hello!", "chat123", "usr1", field: {:body, "model"})
@@ -150,7 +146,9 @@ defmodule AiFlow.Ollama.Chat do
 
   ## Returns
 
-  - The formatted response based on `:short` and `:field` options.
+  - `String.t()`: Assistant Answer.
+  - `term()`: The processed response based on `:short` and `:field` options.
+  - `Error.t()`: An error struct if the request fails.
 
   ## Raises
 
@@ -166,7 +164,7 @@ defmodule AiFlow.Ollama.Chat do
       iex> AiFlow.Ollama.Chat.chat!("Hi", "chat123", "usr1")
       ** (RuntimeError) Chat request failed: %AiFlow.Ollama.Error{type: :unknown, reason: "Connection timeout"}
   """
-  @spec chat!(String.t(), String.t(), String.t(), keyword()) :: term()
+  @spec chat!(String.t(), String.t(), String.t(), keyword()) :: term() | Error.t()
   def chat!(prompt, chat_id, user_id \\ "default_user", opts \\ []) do
     case chat(prompt, chat_id, user_id, opts) do
       {:ok, result} -> result
@@ -304,7 +302,7 @@ defmodule AiFlow.Ollama.Chat do
   ## Returns
 
   - `{:ok, term()}`: The requested data based on `user_id`, `chat_id`, and `:short` option.
-  - `{:error, term()}`: An error if the chat data could not be loaded or chat is not found.
+  - `{:error, Error.t()}`: An error if the chat data could not be loaded or chat is not found.
 
   ## Examples
 
@@ -343,7 +341,7 @@ defmodule AiFlow.Ollama.Chat do
       iex> AiFlow.Ollama.Chat.show_chat_history(user_id: "user1", chat_id: "unknown_chat")
       {:error, :chat_not_found}
   """
-  @spec show_chat_history(keyword()) :: {:ok, term()} | {:error, term()}
+  @spec show_chat_history(keyword()) :: {:ok, term()} | {:error, Error.t()}
   def show_chat_history(opts \\ []) do
     config = AiFlow.Ollama.get_config()
     user_id = Keyword.get(opts, :user_id, nil)
@@ -392,6 +390,7 @@ defmodule AiFlow.Ollama.Chat do
   ## Returns
 
   - `term()`: The requested data based on `user_id`, `chat_id`, and `:short` option.
+  - `Error.t()`: An error if the chat data could not be loaded or chat is not found.
 
   ## Raises
 
@@ -411,7 +410,7 @@ defmodule AiFlow.Ollama.Chat do
       iex> AiFlow.Ollama.Chat.show_chat_history!(user_id: "unknown_user", chat_id: "unknown_chat")
       ** (RuntimeError) Failed to show chat history: :chat_not_found
   """
-  @spec show_chat_history!(keyword()) :: term()
+  @spec show_chat_history!(keyword()) :: term() | Error.t()
   def show_chat_history!(opts \\ []) do
     case show_chat_history(opts) do
       {:ok, result} -> result
@@ -426,9 +425,9 @@ defmodule AiFlow.Ollama.Chat do
   ## Returns
 
   - `{:ok, map()}`: The entire chat data map with atom keys.
-  - `{:error, term()}`: An error if the chat data could not be loaded.
+  - `{:error, Error.t()}`: An error if the chat data could not be loaded.
   """
-  @spec show_all_chats() :: {:ok, map()} | {:error, term()}
+  @spec show_all_chats() :: {:ok, map()} | {:error, Error.t()}
   def show_all_chats do
     config = AiFlow.Ollama.get_config()
 
@@ -443,12 +442,13 @@ defmodule AiFlow.Ollama.Chat do
   ## Returns
 
   - `map()`: The entire chat data map with atom keys.
+  - `Error.t()`: An error if the chat data could not be loaded.
 
   ## Raises
 
   - `RuntimeError` if the chat data could not be loaded.
   """
-  @spec show_all_chats!() :: map()
+  @spec show_all_chats!() :: map() | Error.t()
   def show_all_chats! do
     case show_all_chats() do
       {:ok, result} -> result
@@ -470,19 +470,31 @@ defmodule AiFlow.Ollama.Chat do
 
   - `{:ok, :success}`: Confirmation of deletion.
   - `{:ok, :deleted}`: If selected chat has already been deleted
-  - `{:error, term()}`: An error if deletion failed or confirmation was not given.
+  - `{:error, Error.t()}`: An error if deletion failed or confirmation was not given.
 
   ## Examples
 
+      # Delete all chat without confirm: true
+      AiFlow.Ollama.Chat.clear_chat_history()
+      {:error, "Please confirm deletion of all chats by passing 'confirm: true' as an option."}
+
+      # Delete all chat with confirm: true
+      AiFlow.Ollama.Chat.clear_chat_history(confirm: true)
+      {:ok, :success}
+
+      # Delete user chat without chat_id
+      AiFlow.Ollama.Chat.clear_chat_history(user_id: "user1")
+      {:error, "Please confirm deletion of all chats for user 'user1' by passing 'confirm: true' as an option, or specify a chat ID with 'chat: chat_id' to delete a specific chat."}
+
       # Delete user chat
-      AiFlow.Ollama.Chat.chat(chat_id: "my_chat", user_id: "user1")
+      AiFlow.Ollama.Chat.clear_chat_history(chat_id: "my_chat", user_id: "user1")
       {:ok, :success}
 
       # If the selected chat has already been deleted
-      AiFlow.Ollama.Chat.chat(chat_id: "my_chat", user_id: "user1")
+      AiFlow.Ollama.Chat.clear_chat_history(chat_id: "my_chat", user_id: "user1")
       {:ok, :deleted}
   """
-  @spec clear_chat_history(keyword()) :: {:ok, :deleted} | {:error, term()}
+  @spec clear_chat_history(keyword()) :: {:ok, :deleted} | {:error, Error.t()}
   def clear_chat_history(opts \\ []) do
     config = AiFlow.Ollama.get_config()
     confirm = Keyword.get(opts, :confirm, false)
@@ -512,19 +524,22 @@ defmodule AiFlow.Ollama.Chat do
 
   - `{:ok, :success}`: Confirmation of deletion.
   - `{:ok, :deleted}`: If selected chat has already been deleted
-  - `{:error, term()}`: An error if deletion failed or confirmation was not given.
+  - `{:error, Error.t()}`: An error if deletion failed or confirmation was not given.
 
   ## Examples
+      # Delete all chat without confirm: true
+      AiFlow.Ollama.Chat.clear_chat_history!()
+      "Please confirm deletion of all chats by passing 'confirm: true' as an option."
 
       # Delete user chat
-      AiFlow.Ollama.Chat.chat!(chat_id: "my_chat", user_id: "user1")
+      AiFlow.Ollama.Chat.clear_chat_history!(chat_id: "my_chat", user_id: "user1")
       :success
 
       # If the selected chat has already been deleted
-      AiFlow.Ollama.Chat.chat(chat_id: "my_chat", user_id: "user1")
+      AiFlow.Ollama.Chat.clear_chat_history!(chat_id: "my_chat", user_id: "user1")
       :deleted
   """
-  @spec clear_chat_history(keyword()) :: {:ok, :deleted} | {:error, term()}
+  @spec clear_chat_history(keyword()) :: {:ok, :deleted} | {:error, Error.t()}
   def clear_chat_history!(opts \\ []) do
     case clear_chat_history(opts) do
       {:ok, result} -> result
@@ -611,7 +626,7 @@ defmodule AiFlow.Ollama.Chat do
   ## Returns
 
   - `{:ok, map()}`: A map representing the chat data with atom keys.
-  - `{:error, term()}`: An error reason if the file could not be read or parsed.
+  - `{:error, Error.t()}`: An error reason if the file could not be read or parsed.
 
   ## Examples
 
@@ -641,7 +656,7 @@ defmodule AiFlow.Ollama.Chat do
       iex> AiFlow.Ollama.Chat.debug_load_chat_data()
       {:error, %Jason.DecodeError{data: "<<", position: 0, token: nil}}
   """
-  @spec debug_load_chat_data() :: {:ok, map()} | {:error, term()}
+  @spec debug_load_chat_data() :: {:ok, map()} | {:error, Error.t()}
   def debug_load_chat_data do
     config = AiFlow.Ollama.get_config()
 
@@ -724,9 +739,9 @@ defmodule AiFlow.Ollama.Chat do
   ## Returns
 
   - `{:ok, map()}`: The parsed chat data if the file is valid.
-  - `{:error, term()}`: An error if the file is missing or malformed.
+  - `{:error, Error.t()}`: An error if the file is missing or malformed.
   """
-  @spec check_chat_file() :: {:ok, map()} | {:error, term()}
+  @spec check_chat_file() :: {:ok, map()} | {:error, Error.t()}
   def check_chat_file do
     config = AiFlow.Ollama.get_config()
 

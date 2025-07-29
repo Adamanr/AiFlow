@@ -1,18 +1,44 @@
 # AiFlow
 
-A simple Elixir library for interacting with the Ollama API.
+**Streamline your AI workflow with a unified, elegant interface for multiple AI providers**
 
-## Features
+[![Hex.pm](https://img.shields.io/hexpm/v/ai_flow.svg)](https://hex.pm/packages/ai_flow)
+[![Documentation](https://img.shields.io/badge/documentation-gray)](https://hexdocs.pm/ai_flow)
+[![License](https://img.shields.io/hexpm/l/ai_flow.svg)](https://github.com/adamanr/ai_flow/blob/main/LICENSE)
 
-- **Model Management**: List, create, copy, delete, pull, and push models
-- **Chat Sessions**: Maintain chat history with persistent storage
-- **Text Generation**: Send prompts and get completions
-- **Embeddings**: Generate embeddings for text
-- **Blob Operations**: Upload and manage model files
-- **Error Handling**: Comprehensive error handling with bang (!) versions
-- **Debugging**: Built-in debugging functions for troubleshooting
+---
 
-## Installation
+## Why AiFlow?
+
+Working with different AI models shouldn't feel like herding cats. AiFlow provides a **consistent, developer-friendly interface** that makes integrating AI into your Elixir applications a breeze. Start with Ollama today, with more providers coming soon.
+
+### 🚀 Simple & Intuitive
+```elixir
+# Ask any question - it's that simple!
+{:ok, response} = AiFlow.Ollama.query("Explain quantum computing in simple terms", "llama3.1")
+```
+
+### 🔧 Unified API
+One interface, multiple AI providers. Switch between services without rewriting your code.
+
+### 🛠️ Production Ready
+Built-in error handling, debugging tools, and comprehensive testing.
+
+---
+
+## 🌟 Key Features
+
+- **🧠 Model Management**: List, create, copy, delete, pull, and push models
+- **💬 Smart Chat Sessions**: Persistent chat history with automatic context management  
+- **✍️ Text Generation**: Powerful prompt completion with customizable parameters
+- **🔍 Embeddings**: Generate vector embeddings for semantic search and ML tasks
+- **🔄 Blob Operations**: Efficient model file management
+- **🛡️ Robust Error Handling**: Comprehensive error management with bang (!) versions
+- **🐛 Advanced Debugging**: Built-in tools for troubleshooting and development
+
+---
+
+## 📦 Installation
 
 Add `ai_flow` to your list of dependencies in `mix.exs`:
 
@@ -24,240 +50,131 @@ def deps do
 end
 ```
 
-## Configuration
+---
 
-You can configure the Ollama client via application environment or by passing options to `start_link/1`:
+## ⚙️ Quick Start
+
+### 1. Start the Client
 
 ```elixir
-# In config.exs
+# Quick start with defaults
+{:ok, pid} = AiFlow.Ollama.start_link()
+
+# Or customize your setup
+{:ok, pid} = AiFlow.Ollama.start_link(
+  hostname: "localhost",
+  port: 11434,
+  timeout: 60_000
+)
+```
+
+### 2. Start Chatting
+
+```elixir
+# Simple question
+{:ok, response} = AiFlow.Ollama.query("Why is the sky blue?", "llama3.1")
+
+# Interactive chat
+{:ok, response} = AiFlow.Ollama.chat("Hello!", "chat_session_1", "user_123", "llama3.1")
+{:ok, response} = AiFlow.Ollama.chat("Tell me more about that", "chat_session_1", "user_123", "llama3.1")
+```
+
+### 3. Advanced Usage
+
+```elixir
+# Generate embeddings for semantic search
+{:ok, embeddings} = AiFlow.Ollama.generate_embeddings([
+  "The cat sat on the mat",
+  "A feline rested on the rug"
+])
+
+# Manage your models
+{:ok, models} = AiFlow.Ollama.list_models()
+{:ok, :success} = AiFlow.Ollama.create_model("my-custom-model", "llama3.1", "You are a helpful coding assistant.")
+```
+
+---
+
+## 🎯 Current Capabilities
+
+### Direct Function Calls
+Work with AI models intuitively:
+
+* `AiFlow.Ollama.list_models()` - Discover available models  
+* `AiFlow.Ollama.query()` - Ask questions to any model
+* `AiFlow.Ollama.chat()` - Engage in persistent conversations
+
+### Comprehensive Model Management
+```elixir
+# Everything you need to manage AI models
+AiFlow.Ollama.list_models()
+AiFlow.Ollama.create_model("my-model", "base-model", "system prompt")
+AiFlow.Ollama.copy_model("original", "backup")
+AiFlow.Ollama.delete_model("old-model")
+AiFlow.Ollama.pull_model("new-model")
+AiFlow.Ollama.push_model("my-model:latest")
+```
+
+---
+
+## 🛠️ Configuration
+
+Flexible configuration for any environment:
+
+```elixir
+# Application-wide configuration
 config :ai_flow, AiFlow.Ollama,
   hostname: "localhost",
   port: 11434,
   timeout: 60_000
 
-# Or when starting
+# Or per-instance configuration
 {:ok, pid} = AiFlow.Ollama.start_link(
-  hostname: "localhost",
+  hostname: "production-ai.internal",
   port: 11434,
-  timeout: 60_000
+  timeout: 120_000
 )
 ```
 
-## Usage
+## 🚀 What's Coming Next?
 
-### Basic Setup
+AiFlow is just getting started! Upcoming integrations include:
 
-```elixir
-# Start the client
-{:ok, pid} = AiFlow.Ollama.start_link()
+- **🐝 Bumblebee Integration**: Hugging Face models support
+- **☁️ Cloud AI Providers**: OpenAI, Anthropic, Google AI
+- **📦 Model Registry**: Centralized model management
+- **⚡ Performance Optimizations**: Caching and batching
 
-# Or with custom configuration
-{:ok, pid} = AiFlow.Ollama.start_link(
-  hostname: "localhost",
-  port: 11434,
-  timeout: 60_000
-)
-```
+---
 
-### Text Generation
+## 🤝 Contributing
 
-```elixir
-# Simple query
-{:ok, response} = AiFlow.Ollama.query("Why is the sky blue?", "llama3.1")
-
-# With options
-{:ok, response} = AiFlow.Ollama.query(
-  "Hello, world!", 
-  "llama3.1", 
-  temperature: 0.7,
-  top_p: 0.9
-)
-
-# Bang version (raises on error)
-response = AiFlow.Ollama.query!("Hello, world!", "llama3.1")
-```
-
-### Chat Sessions
-
-```elixir
-# Start a chat session
-{:ok, response} = AiFlow.Ollama.chat("Hello!", "chat_123", "user_456", "llama3.1")
-
-# Continue the conversation
-{:ok, response} = AiFlow.Ollama.chat("How are you?", "chat_123", "user_456", "llama3.1")
-
-# View chat history
-messages = AiFlow.Ollama.show_chat_history("chat_123", "user_456")
-
-# Clear chat history
-AiFlow.Ollama.clear_chat_history()
-```
-
-### Model Management
-
-```elixir
-# List available models
-{:ok, models} = AiFlow.Ollama.list_models()
-{:ok, names} = AiFlow.Ollama.list_models(short: true)
-
-# Create a new model
-{:ok, :success} = AiFlow.Ollama.create_model(
-  "my-model", 
-  "llama3.1", 
-  "You are a helpful assistant."
-)
-
-# Show model information
-{:ok, info} = AiFlow.Ollama.show_model("llama3.1")
-
-# Copy a model
-{:ok, :success} = AiFlow.Ollama.copy_model("llama3.1", "llama3.1-backup")
-
-# Delete a model
-{:ok, :success} = AiFlow.Ollama.delete_model("old-model")
-
-# Pull a model from the library
-{:ok, :success} = AiFlow.Ollama.pull_model("llama3.1")
-
-# Push a model to the library
-{:ok, :success} = AiFlow.Ollama.push_model("my-model:latest")
-```
-
-### Embeddings
-
-```elixir
-# Generate embeddings for a single text
-{:ok, embeddings} = AiFlow.Ollama.generate_embeddings("Hello, world!")
-
-# Generate embeddings for multiple texts
-{:ok, embeddings} = AiFlow.Ollama.generate_embeddings([
-  "Hello, world!",
-  "How are you?"
-])
-
-# Legacy endpoint
-{:ok, embedding} = AiFlow.Ollama.generate_embeddings_legacy("Hello, world!")
-```
-
-### Blob Operations
-
-```elixir
-# Check if a blob exists
-{:ok, :exists} = AiFlow.Ollama.check_blob("digest")
-
-# Create a blob from a file
-{:ok, :success} = AiFlow.Ollama.create_blob("digest", "model.bin")
-```
-
-### Running Models
-
-```elixir
-# List running models
-{:ok, models} = AiFlow.Ollama.list_running_models()
-
-# Load a model into memory
-{:ok, :success} = AiFlow.Ollama.load_model("llama3.1")
-```
-
-### Debugging
-
-```elixir
-# Show all chats
-all_chats = AiFlow.Ollama.show_all_chats()
-
-# Debug chat data loading
-{:ok, chat_data} = AiFlow.Ollama.debug_load_chat_data()
-
-# Check chat file
-{:ok, chat_data} = AiFlow.Ollama.check_chat_file()
-
-# Debug chat history
-messages = AiFlow.Ollama.debug_show_chat_history("chat_id", "user_id")
-```
-
-## Testing
-
-The library includes comprehensive tests covering:
-
-### Unit Tests (`test/ai_flow_test.exs`)
-
-- **Configuration**: Testing default and custom configuration
-- **Chat History Management**: Testing chat file operations
-- **Debug Functions**: Testing debugging utilities
-- **File Operations**: Testing file handling
-- **Configuration Functions**: Testing getter functions
-
-### Integration Tests (`test/ai_flow_integration_test.exs`)
-
-- **Network Error Handling**: Testing behavior when server is unavailable
-- **Bang Versions**: Testing error-raising versions of functions
-- **File Operations**: Testing file operations with real files
-- **Configuration**: Testing configuration functions
-
-### Running Tests
-
-```bash
-# Run all tests
-mix test
-
-# Run with detailed output
-mix test --trace
-
-# Run specific test file
-mix test test/ai_flow_test.exs
-
-# Run specific test
-mix test test/ai_flow_test.exs:89
-```
-
-### Test Coverage
-
-The tests cover:
-
-1. **Configuration Management**
-   - Default configuration
-   - Custom configuration
-   - Configuration getters
-
-2. **Chat History**
-   - Chat file creation and management
-   - History clearing
-   - Debug functions
-
-3. **Error Handling**
-   - Network errors
-   - File errors
-   - HTTP errors
-   - Bang versions
-
-4. **File Operations**
-   - File reading
-   - File writing
-   - Error handling
-
-5. **Debug Functions**
-   - Chat data loading
-   - File content inspection
-   - History debugging
-
-## Error Handling
-
-All functions return `{:ok, result}` on success or `{:error, reason}` on failure. Bang versions (e.g., `query!/3`) raise a `RuntimeError` on failure.
-
-Common error types:
-- `{:http_error, status, body}`: HTTP request failed
-- `{:file_error, reason}`: File operation failed
-- `{:network_error, reason}`: Network connection failed
-
-## Contributing
+We love contributions! Here's how to get started:
 
 1. Fork the repository
-2. Create a feature branch
-3. Add tests for new functionality
-4. Ensure all tests pass
-5. Submit a pull request
+2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
 
-## License
+---
 
-This project is licensed under the MIT License.
+## 📚 Documentation
 
+Full API documentation is available at [HexDocs](https://hexdocs.pm/ai_flow).
+
+---
+
+## 📄 License
+
+Distributed under the MIT License. See `LICENSE` for more information.
+
+---
+
+## 💬 Get in Touch
+
+- Found a bug? [Open an issue](https://github.com/yourusername/ai_flow/issues)
+- Have a feature request? We'd love to hear it!
+- Questions? Check out the documentation or open a discussion
+
+**Made with ❤️ for the Elixir community**

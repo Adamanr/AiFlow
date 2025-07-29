@@ -14,8 +14,8 @@ defmodule AiFlow.Ollama.TextGenerationTest do
 
   describe "query/1,2 and query!/1,2" do
     test "returns error if config or model is invalid" do
-      assert {:error, %Req.Response{}} = TextGeneration.query("Hello", model: "invalid-model")
-      assert %Req.Response{} = TextGeneration.query!("Hello", model: "invalid-model")
+      assert {:error, %{"error" => "model 'invalid-model' not found"}} = TextGeneration.query("Hello", model: "invalid-model")
+      assert %{"error" => "model 'invalid-model' not found"} = TextGeneration.query!("Hello", model: "invalid-model")
     end
   end
 end

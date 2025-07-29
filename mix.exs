@@ -6,7 +6,8 @@ defmodule AiFlow.MixProject do
       app: :ai_flow,
       version: "0.1.0",
       elixir: "~> 1.18",
-      start_permanent: Mix.env() == :prod,
+      build_embedded: Mix.env == :prod,
+      start_permanent: Mix.env == :prod,
       description: "A simple Elixir library for interacting with the Ollama API",
       package: package(),
       deps: deps(),
@@ -44,6 +45,7 @@ defmodule AiFlow.MixProject do
       {:ex_doc, "~> 0.34", only: :dev, runtime: false, warn_if_outdated: true},
       {:makeup_html, ">= 0.0.0", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:mox, "~> 1.2"}
     ]
   end
 end

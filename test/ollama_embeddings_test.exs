@@ -14,15 +14,15 @@ defmodule AiFlow.Ollama.EmbeddingsTest do
 
   describe "generate_embeddings/1,2 and generate_embeddings!/1,2" do
     test "returns error if model is invalid" do
-      assert {:error, %Req.Response{}} = Embeddings.generate_embeddings("Hello", model: "invalid-model")
-      assert %Req.Response{} = Embeddings.generate_embeddings!("Hello", model: "invalid-model")
+      assert {:error, %{"error" => "model \"invalid-model\" not found, try pulling it first"}} = Embeddings.generate_embeddings("Hello", model: "invalid-model")
+      assert %{"error" => "model \"invalid-model\" not found, try pulling it first"} = Embeddings.generate_embeddings!("Hello", model: "invalid-model")
     end
   end
 
   describe "generate_embeddings_legacy/1,2 and generate_embeddings_legacy!/1,2" do
     test "returns error if model is invalid" do
-      assert {:error, %Req.Response{}} = Embeddings.generate_embeddings_legacy("Hello", model: "invalid-model")
-      assert %Req.Response{} = Embeddings.generate_embeddings_legacy!("Hello", model: "invalid-model")
+      assert {:error, %{"error" => "model \"invalid-model\" not found, try pulling it first"}} = Embeddings.generate_embeddings_legacy("Hello", model: "invalid-model")
+      assert %{"error" => "model \"invalid-model\" not found, try pulling it first"} = Embeddings.generate_embeddings_legacy!("Hello", model: "invalid-model")
     end
   end
 end

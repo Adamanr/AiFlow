@@ -110,9 +110,6 @@ defmodule AiFlow.Ollama.HTTPClient do
       {:error, %AiFlow.Ollama.Error{} = error} ->
         {:error, error}
 
-      {:ok, %Req.Response{status: status, body: body}} ->
-        {:error, Error.http(status, body)}
-
       {:error, %Req.TransportError{reason: reason}} when retries > 0 ->
         Logger.debug("Transport error (retries left: #{retries}): #{inspect(reason)}")
         :timer.sleep(200)
@@ -149,9 +146,6 @@ defmodule AiFlow.Ollama.HTTPClient do
       {:error, %AiFlow.Ollama.Error{} = error} ->
         {:error, error}
 
-      {:ok, %Req.Response{status: status, body: body}} ->
-        {:error, Error.http(status, body)}
-
       {:error, %Req.TransportError{reason: reason}} when retries > 0 ->
         Logger.debug("Transport error (retries left: #{retries}): #{inspect(reason)}")
         :timer.sleep(200)
@@ -177,7 +171,10 @@ defmodule AiFlow.Ollama.HTTPClient do
 
     case response do
       {:ok, %Req.Response{body: body} = resp} ->
-        handle_success_response(body, resp, field, action, debug, short)
+        handle_success_response(body, resp, field, action, debug, short, :ok)
+
+      {:error, %Req.Response{status: 404, body: body} = resp} ->
+        handle_success_response(body, resp, :body, action, debug, short, :error)
 
       {:error, reason} ->
         handle_generic_error(reason, action, debug)
@@ -187,18 +184,18 @@ defmodule AiFlow.Ollama.HTTPClient do
     end
   end
 
-  defp handle_success_response(body, req, field, action, debug, short) do
+  defp handle_success_response(body, req, field, action, debug, short, status) do
     if debug, do: Logger.debug("Ollama #{action} response: Status=200, Body=#{inspect(body)}")
     :telemetry.execute([:ai_flow, :ollama, action], %{}, %{result: :ok})
 
     if short do
-      handle_short_response(req, field, action, debug)
+      handle_short_response(req, field, action, debug, status)
     else
       {:ok, req}
     end
   end
 
-  defp handle_short_response(%Req.Response{} = resp, field_spec, action, debug) do
+  defp handle_short_response(%Req.Response{} = resp, field_spec, action, debug, status) do
     parse_if_json_string = fn
       value when is_binary(value) ->
         case Jason.decode(value) do
@@ -288,17 +285,17 @@ defmodule AiFlow.Ollama.HTTPClient do
           end
       end
 
-    {:ok, result}
+    {status, result}
   rescue
     _ ->
       if debug do
         Logger.warning("Error while processing short response for action #{action}, returning raw body.")
         Logger.flush()
       end
-      {:ok, resp.body}
+      {status, resp.body}
   end
 
-  defp handle_short_response(_body, field_spec, action, debug) do
+  defp handle_short_response(_body, field_spec, action, debug, _status) do
     message = "Invalid response body structure for Ollama #{action}, cannot extract field #{inspect(field_spec)}"
     if debug do
       Logger.warning(message)
