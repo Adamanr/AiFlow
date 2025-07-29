@@ -45,7 +45,7 @@ defmodule AiFlow.MixProject do
       {:ex_doc, "~> 0.34", only: :dev, runtime: false, warn_if_outdated: true},
       {:makeup_html, ">= 0.0.0", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
-      {:mox, "~> 1.2"}
+      {:mox, "~> 1.2", only: :test}
     ]
   end
 end
